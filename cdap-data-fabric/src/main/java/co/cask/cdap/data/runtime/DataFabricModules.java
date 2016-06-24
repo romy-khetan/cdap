@@ -16,10 +16,7 @@
 package co.cask.cdap.data.runtime;
 
 import co.cask.cdap.common.runtime.RuntimeModule;
-import co.cask.tephra.TransactionManager;
-import com.google.inject.AbstractModule;
 import com.google.inject.Module;
-import com.google.inject.util.Modules;
 
 /**
  * DataFabricModules defines all of the bindings for the different data
@@ -35,16 +32,6 @@ public class DataFabricModules extends RuntimeModule {
   @Override
   public Module getStandaloneModules() {
     return new DataFabricLocalModule();
-  }
-
-
-  public Module getPreviewModules(final TransactionManager transactionManager) {
-    return Modules.override(new DataFabricLocalModule()).with(new AbstractModule() {
-      @Override
-      protected void configure() {
-        bind(TransactionManager.class).toInstance(transactionManager);
-      }
-    });
   }
 
   @Override

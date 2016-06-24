@@ -66,7 +66,7 @@
 
   <property>
     <name>local.preview.dir</name>
-    <value>preview</value>
+    <value>data/preview</value>
     <description>
       Data directory for preview mode in standalone.
     </description>
@@ -347,7 +347,7 @@
 
   <property>
     <name>audit.enabled</name>
-    <value>false</value>
+    <value>true</value>
     <description>
       Determines whether to publish audit messages to Apache Kafka
     </description>

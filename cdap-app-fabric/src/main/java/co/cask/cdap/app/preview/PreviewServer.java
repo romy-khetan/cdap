@@ -17,40 +17,76 @@
 package co.cask.cdap.app.preview;
 
 import co.cask.cdap.api.metrics.MetricsCollectionService;
+import co.cask.cdap.app.guice.ProgramRunnerRuntimeModule;
 import co.cask.cdap.app.runtime.ProgramRuntimeService;
 import co.cask.cdap.common.conf.CConfiguration;
 import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.common.discovery.ResolvingDiscoverable;
+import co.cask.cdap.common.guice.ConfigModule;
+import co.cask.cdap.common.guice.IOModule;
+import co.cask.cdap.common.guice.LocationRuntimeModule;
+import co.cask.cdap.common.guice.preview.PreviewDiscoveryRuntimeModule;
 import co.cask.cdap.common.http.CommonNettyHttpServiceBuilder;
 import co.cask.cdap.common.logging.LoggingContextAccessor;
 import co.cask.cdap.common.logging.ServiceLoggingContext;
 import co.cask.cdap.common.metrics.MetricsReporterHook;
+import co.cask.cdap.common.startup.ConfigurationLogger;
+import co.cask.cdap.common.utils.DirUtils;
+import co.cask.cdap.config.guice.ConfigStoreModule;
+import co.cask.cdap.data.runtime.DataSetServiceModules;
+import co.cask.cdap.data.runtime.preview.PreviewModules;
+import co.cask.cdap.data.stream.StreamCoordinatorClient;
+import co.cask.cdap.data2.datafabric.dataset.service.DatasetService;
+import co.cask.cdap.data2.dataset2.DatasetFramework;
+import co.cask.cdap.data2.transaction.stream.StreamAdmin;
+import co.cask.cdap.data2.transaction.stream.StreamConsumerFactory;
+import co.cask.cdap.explore.client.ExploreClient;
+import co.cask.cdap.explore.client.MockExploreClient;
+import co.cask.cdap.gateway.handlers.meta.RemoteSystemOperationsServiceModule;
+import co.cask.cdap.internal.app.runtime.artifact.ArtifactRepository;
+import co.cask.cdap.internal.app.runtime.artifact.ArtifactStore;
 import co.cask.cdap.internal.app.runtime.artifact.SystemArtifactLoader;
 import co.cask.cdap.internal.app.services.ApplicationLifecycleService;
 import co.cask.cdap.internal.app.services.ProgramLifecycleService;
+import co.cask.cdap.logging.appender.LogAppenderInitializer;
+import co.cask.cdap.logging.guice.LoggingModules;
+import co.cask.cdap.metrics.guice.MetricsClientRuntimeModule;
 import co.cask.cdap.proto.Id;
+import co.cask.cdap.security.auth.context.AuthenticationContextModules;
+import co.cask.cdap.security.authorization.AuthorizerInstantiator;
+import co.cask.cdap.security.guice.SecureStoreModules;
+import co.cask.cdap.security.guice.SecurityModules;
+import co.cask.cdap.security.spi.authorization.AuthorizationEnforcer;
+import co.cask.cdap.security.spi.authorization.PrivilegesManager;
+import co.cask.cdap.store.guice.NamespaceStoreModule;
 import co.cask.http.HandlerHook;
 import co.cask.http.HttpHandler;
 import co.cask.http.NettyHttpService;
+import co.cask.tephra.TransactionManager;
+import co.cask.tephra.inmemory.InMemoryTransactionService;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.AbstractIdleService;
 import com.google.common.util.concurrent.Futures;
+import com.google.inject.AbstractModule;
+import com.google.inject.Guice;
 import com.google.inject.Inject;
-import com.google.inject.name.Named;
+import com.google.inject.Injector;
+import com.google.inject.Key;
+import com.google.inject.TypeLiteral;
+import com.google.inject.name.Names;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.twill.common.Cancellable;
-import org.apache.twill.common.Threads;
 import org.apache.twill.discovery.Discoverable;
 import org.apache.twill.discovery.DiscoveryService;
-import org.apache.twill.internal.ServiceListenerAdapter;
+import org.apache.twill.discovery.InMemoryDiscoveryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.util.List;
 import java.util.Set;
-import javax.annotation.Nullable;
 
 /**
  * Preview Server.
@@ -59,135 +95,198 @@ public class PreviewServer extends AbstractIdleService {
 
   private static final Logger LOG = LoggerFactory.getLogger(PreviewServer.class);
 
+  private final CConfiguration cConf;
   private final DiscoveryService discoveryService;
-  private final InetAddress hostname;
   private final ProgramRuntimeService programRuntimeService;
   private final ApplicationLifecycleService applicationLifecycleService;
   private final ProgramLifecycleService programLifecycleService;
   private final SystemArtifactLoader systemArtifactLoader;
 
-  private NettyHttpService httpService;
-  private Set<HttpHandler> handlers;
-  private MetricsCollectionService metricsCollectionService;
-  private CConfiguration configuration;
+  private final MetricsCollectionService metricsCollectionService;
+  private final LogAppenderInitializer logAppenderInitializer;
+  private final DatasetService datasetService;
+
+  private final NettyHttpService httpService;
+  private Cancellable cancellable;
 
   /**
-   * Construct the PreviewServer with configuration coming from guice injection.
+   * Creates Preview Injector based on shared bindings passed from Standalone injector and
+   * constructs the PreviewServer with configuration coming from guice injection.
    */
   @Inject
-  public PreviewServer(CConfiguration configuration,
-                       @Named("shared-discovery-service") DiscoveryService discoveryService,
-                       @Named(Constants.AppFabric.SERVER_ADDRESS) InetAddress hostname,
-                       @Named(Constants.Preview.HANDLERS_BINDING) Set<HttpHandler> handlers,
-                       @Nullable MetricsCollectionService metricsCollectionService,
-                       ProgramRuntimeService programRuntimeService,
-                       ApplicationLifecycleService applicationLifecycleService,
-                       ProgramLifecycleService programLifecycleService,
-                       SystemArtifactLoader systemArtifactLoader) {
-    this.hostname = hostname;
-    this.discoveryService = discoveryService;
-    this.configuration = configuration;
-    this.handlers = handlers;
-    this.metricsCollectionService = metricsCollectionService;
-    this.programRuntimeService = programRuntimeService;
-    this.applicationLifecycleService = applicationLifecycleService;
-    this.programLifecycleService = programLifecycleService;
-    this.systemArtifactLoader = systemArtifactLoader;
+  public PreviewServer(CConfiguration cConf, Configuration hConf,
+                       InMemoryDiscoveryService discoveryService, TransactionManager transactionManager,
+                       DatasetFramework datasetFramework, final ArtifactRepository artifactRepository,
+                       final ArtifactStore artifactStore, final AuthorizerInstantiator authorizerInstantiator,
+                       final StreamAdmin streamAdmin, final StreamConsumerFactory streamConsumerFactory,
+                       final StreamCoordinatorClient streamCoordinatorClient,
+                       final PrivilegesManager privilegesManager,
+                       final AuthorizationEnforcer authorizationEnforcer,
+                       final InMemoryTransactionService inMemoryTransactionService) {
+    Injector injector = createPreviewInjector(cConf, hConf, discoveryService, transactionManager,
+                                              datasetFramework, artifactRepository,
+                                              artifactStore, authorizerInstantiator, streamAdmin, streamConsumerFactory,
+                                              streamCoordinatorClient, inMemoryTransactionService, privilegesManager,
+                                              authorizationEnforcer);
+    this.cConf = injector.getInstance(CConfiguration.class);
+    this.discoveryService = injector.getInstance(Key.get(DiscoveryService.class,
+                                                         Names.named("shared-discovery-service")));
+    this.metricsCollectionService = injector.getInstance(MetricsCollectionService.class);
+    this.programRuntimeService = injector.getInstance(ProgramRuntimeService.class);
+    this.applicationLifecycleService = injector.getInstance(ApplicationLifecycleService.class);
+    this.programLifecycleService = injector.getInstance(ProgramLifecycleService.class);
+    this.systemArtifactLoader = injector.getInstance(SystemArtifactLoader.class);
+    InetAddress hostname = injector.getInstance(Key.get(InetAddress.class,
+                                                        Names.named(Constants.AppFabric.SERVER_ADDRESS)));
+    Set<HttpHandler> handlers =
+      injector.getInstance(Key.get(new TypeLiteral<Set<HttpHandler>>() { },
+                                   Names.named(Constants.Preview.HANDLERS_BINDING)));
+    // Create handler hooks
+    ImmutableList.Builder<HandlerHook> builder = ImmutableList.builder();
+    builder.add(new MetricsReporterHook(metricsCollectionService, Constants.Service.PREVIEW_HTTP));
+    this.httpService = new CommonNettyHttpServiceBuilder(this.cConf)
+      .setHost(hostname.getCanonicalHostName())
+      .setHandlerHooks(builder.build())
+      .addHttpHandlers(handlers)
+      .setConnectionBacklog(cConf.getInt(Constants.AppFabric.BACKLOG_CONNECTIONS,
+                                         Constants.AppFabric.DEFAULT_BACKLOG))
+      .setExecThreadPoolSize(cConf.getInt(Constants.AppFabric.EXEC_THREADS,
+                                          Constants.AppFabric.DEFAULT_EXEC_THREADS))
+      .setBossThreadPoolSize(cConf.getInt(Constants.AppFabric.BOSS_THREADS,
+                                          Constants.AppFabric.DEFAULT_BOSS_THREADS))
+      .setWorkerThreadPoolSize(cConf.getInt(Constants.AppFabric.WORKER_THREADS,
+                                            Constants.AppFabric.DEFAULT_WORKER_THREADS))
+      .build();
+
+    this.logAppenderInitializer = injector.getInstance(LogAppenderInitializer.class);
+    this.datasetService = injector.getInstance(DatasetService.class);
+  }
+
+  private Injector createPreviewInjector(CConfiguration cConf, Configuration hConf,
+                                         InMemoryDiscoveryService discoveryService,
+                                         TransactionManager transactionManager,
+                                         DatasetFramework datasetFramework,
+                                         final ArtifactRepository artifactRepository,
+                                         final ArtifactStore artifactStore,
+                                         final AuthorizerInstantiator authorizerInstantiator,
+                                         final StreamAdmin streamAdmin,
+                                         final StreamConsumerFactory streamConsumerFactory,
+                                         final StreamCoordinatorClient streamCoordinatorClient,
+                                         final InMemoryTransactionService inMemoryTransactionService,
+                                         final PrivilegesManager privilegesManager,
+                                         final AuthorizationEnforcer authorizationEnforcer) {
+    // create cConf and hConf and set appropriate settings for preview
+    CConfiguration previewcConf = CConfiguration.copy(cConf);
+    previewcConf.set(Constants.CFG_LOCAL_DATA_DIR, previewcConf.get(Constants.CFG_LOCAL_PREVIEW_DIR));
+    previewcConf.set(Constants.Dataset.DATA_DIR, previewcConf.get(Constants.CFG_LOCAL_PREVIEW_DIR));
+    Configuration previewhConf = new Configuration(hConf);
+    File localPreviewDir = new File(cConf.get(Constants.CFG_LOCAL_PREVIEW_DIR));
+    previewcConf.set(Constants.CFG_LOCAL_DATA_DIR, localPreviewDir.getAbsolutePath());
+    previewcConf.setIfUnset(Constants.CFG_DATA_LEVELDB_DIR, "data/preview");
+    return Guice.createInjector(
+      new ConfigModule(previewcConf, previewhConf),
+      new IOModule(),
+      new AuthenticationContextModules().getMasterModule(),
+      // todo : figure if we should we share secure store modules to allow reading the secure data during preview
+      new SecurityModules().getStandaloneModules(),
+      new SecureStoreModules().getStandaloneModules(),
+      new PreviewDiscoveryRuntimeModule(discoveryService),
+      new LocationRuntimeModule().getStandaloneModules(),
+      new ConfigStoreModule().getStandaloneModule(),
+      new PreviewServerModule(),
+      new ProgramRunnerRuntimeModule().getStandaloneModules(),
+      new PreviewModules().getDataFabricModule(transactionManager),
+      new PreviewModules().getDataSetsModule(datasetFramework),
+      new DataSetServiceModules().getStandaloneModules(),
+      new MetricsClientRuntimeModule().getStandaloneModules(),
+      new LoggingModules().getStandaloneModules(),
+      new NamespaceStoreModule().getStandaloneModules(),
+      new RemoteSystemOperationsServiceModule(),
+      new AbstractModule() {
+        @Override
+        protected void configure() {
+          bind(ArtifactRepository.class).toInstance(artifactRepository);
+          bind(ArtifactStore.class).toInstance(artifactStore);
+          bind(AuthorizerInstantiator.class).toInstance(authorizerInstantiator);
+          bind(AuthorizationEnforcer.class).toInstance(authorizationEnforcer);
+          bind(PrivilegesManager.class).toInstance(privilegesManager);
+          bind(StreamAdmin.class).toInstance(streamAdmin);
+          bind(StreamConsumerFactory.class).toInstance(streamConsumerFactory);
+          bind(StreamCoordinatorClient.class).toInstance(streamCoordinatorClient);
+          bind(InMemoryTransactionService.class).toInstance(inMemoryTransactionService);
+          // bind explore client to mock.
+          bind(ExploreClient.class).to(MockExploreClient.class);
+        }
+      });
   }
 
   /**
-   * Configures the Preview pre-start.
+   * starts preview services
    */
   @Override
   protected void startUp() throws Exception {
+    ConfigurationLogger.logImportantConfig(cConf);
+
+    metricsCollectionService.startAndWait();
+    datasetService.startAndWait();
+
+    // It is recommended to initialize log appender after datasetService is started,
+    // since log appender instantiates a dataset.
+    logAppenderInitializer.initialize();
+
     LoggingContextAccessor.setLoggingContext(new ServiceLoggingContext(Id.Namespace.SYSTEM.getId(),
                                                                        Constants.Logging.COMPONENT_NAME,
                                                                        Constants.Service.PREVIEW_HTTP));
     Futures.allAsList(
-      ImmutableList.of(
-        applicationLifecycleService.start(),
-        systemArtifactLoader.start(),
-        programRuntimeService.start(),
-        programLifecycleService.start()
-      )
+      applicationLifecycleService.start(),
+      systemArtifactLoader.start(),
+      programRuntimeService.start(),
+      programLifecycleService.start()
     ).get();
 
-    // Create handler hooks
-    ImmutableList.Builder<HandlerHook> builder = ImmutableList.builder();
-    builder.add(new MetricsReporterHook(metricsCollectionService, Constants.Service.PREVIEW_HTTP));
-
-
     // Run http service on random port
-    httpService = new CommonNettyHttpServiceBuilder(configuration)
-      .setHost(hostname.getCanonicalHostName())
-      .setHandlerHooks(builder.build())
-      .addHttpHandlers(handlers)
-      .setConnectionBacklog(configuration.getInt(Constants.AppFabric.BACKLOG_CONNECTIONS,
-                                                 Constants.AppFabric.DEFAULT_BACKLOG))
-      .setExecThreadPoolSize(configuration.getInt(Constants.AppFabric.EXEC_THREADS,
-                                                  Constants.AppFabric.DEFAULT_EXEC_THREADS))
-      .setBossThreadPoolSize(configuration.getInt(Constants.AppFabric.BOSS_THREADS,
-                                                  Constants.AppFabric.DEFAULT_BOSS_THREADS))
-      .setWorkerThreadPoolSize(configuration.getInt(Constants.AppFabric.WORKER_THREADS,
-                                                    Constants.AppFabric.DEFAULT_WORKER_THREADS))
-      .build();
-
-    // Add a listener so that when the service started, register with service discovery.
-    // Remove from service discovery when it is stopped.
-    httpService.addListener(new ServiceListenerAdapter() {
-
-      private List<Cancellable> cancellables = Lists.newArrayList();
-
-      @Override
-      public void running() {
-        final InetSocketAddress socketAddress = httpService.getBindAddress();
-        LOG.info("Preview HTTP Service started at {}", socketAddress);
-        // When it is running, register it with service discovery
-
-        cancellables.add(discoveryService.register(ResolvingDiscoverable.of(new Discoverable() {
-          @Override
-          public String getName() {
-            return Constants.Service.PREVIEW_HTTP;
-          }
-
-          @Override
-          public InetSocketAddress getSocketAddress() {
-            return socketAddress;
-          }
-        })));
-
-      }
-
-      @Override
-      public void terminated(State from) {
-        LOG.info("Preview HTTP service stopped.");
-        for (Cancellable cancellable : cancellables) {
-          if (cancellable != null) {
-            cancellable.cancel();
-          }
-        }
-      }
-
-      @Override
-      public void failed(State from, Throwable failure) {
-        LOG.info("Preview HTTP service stopped with failure.", failure);
-        for (Cancellable cancellable : cancellables) {
-          if (cancellable != null) {
-            cancellable.cancel();
-          }
-        }
-      }
-    }, Threads.SAME_THREAD_EXECUTOR);
-
     httpService.startAndWait();
+
+    // cancel service discovery on shutdown
+    cancellable = discoveryService.register(ResolvingDiscoverable.of(new Discoverable() {
+      @Override
+      public String getName() {
+        return Constants.Service.PREVIEW_HTTP;
+      }
+
+      @Override
+      public InetSocketAddress getSocketAddress() {
+        return httpService.getBindAddress();
+      }
+    }));
   }
 
   @Override
   protected void shutDown() throws Exception {
+    cancellable.cancel();
     httpService.stopAndWait();
     programRuntimeService.stopAndWait();
     applicationLifecycleService.stopAndWait();
     systemArtifactLoader.stopAndWait();
     programLifecycleService.stopAndWait();
+    logAppenderInitializer.close();
+    datasetService.stopAndWait();
+    metricsCollectionService.stopAndWait();
+    cleanupTempDir();
+  }
+
+  private void cleanupTempDir() {
+    File tmpDir = new File(cConf.get(Constants.CFG_LOCAL_PREVIEW_DIR),
+                           cConf.get(Constants.AppFabric.TEMP_DIR)).getAbsoluteFile();
+    if (!tmpDir.isDirectory()) {
+      return;
+    }
+
+    try {
+      DirUtils.deleteDirectoryContents(tmpDir, true);
+    } catch (IOException e) {
+      // It's ok not able to cleanup temp directory.
+      LOG.debug("Failed to cleanup temp directory {}", tmpDir, e);
+    }
   }
 }

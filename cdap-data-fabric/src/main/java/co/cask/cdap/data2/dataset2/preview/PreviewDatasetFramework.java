@@ -13,7 +13,7 @@
  * License for the specific language governing permissions and limitations under
  * the License.
  */
-package co.cask.cdap.data2.dataset2;
+package co.cask.cdap.data2.dataset2.preview;
 
 
 import co.cask.cdap.api.dataset.Dataset;
@@ -23,8 +23,10 @@ import co.cask.cdap.api.dataset.DatasetProperties;
 import co.cask.cdap.api.dataset.DatasetSpecification;
 import co.cask.cdap.api.dataset.module.DatasetModule;
 import co.cask.cdap.data2.datafabric.dataset.type.DatasetClassLoaderProvider;
+import co.cask.cdap.data2.dataset2.DatasetFramework;
 import co.cask.cdap.data2.metadata.lineage.AccessType;
 import co.cask.cdap.proto.DatasetSpecificationSummary;
+import co.cask.cdap.proto.DatasetTypeMeta;
 import co.cask.cdap.proto.Id;
 import org.apache.twill.filesystem.Location;
 
@@ -37,8 +39,8 @@ import javax.annotation.Nullable;
  * Datasetframework that delegates either to local or shared (actual) dataset framework.
  */
 public class PreviewDatasetFramework implements DatasetFramework {
-  DatasetFramework localDatasetFramework;
-  DatasetFramework actualDatasetFramework;
+  private final DatasetFramework localDatasetFramework;
+  private final DatasetFramework actualDatasetFramework;
 
   public PreviewDatasetFramework(DatasetFramework local, DatasetFramework actual) {
     this.localDatasetFramework = local;
@@ -79,12 +81,11 @@ public class PreviewDatasetFramework implements DatasetFramework {
                           DatasetProperties props) throws DatasetManagementException, IOException {
     if (datasetInstanceId.getNamespace().equals(Id.Namespace.SYSTEM)) {
       localDatasetFramework.addInstance(datasetTypeName, datasetInstanceId, props);
+    } else {
+      // Create the dataset instances corresponding to the Source and Sink during preview
+      actualDatasetFramework.addInstance(datasetTypeName, datasetInstanceId, props);
     }
-    // Create the dataset instances corresponding to the Source and Sink during preview
-    actualDatasetFramework.addInstance(datasetTypeName, datasetInstanceId, props);
   }
-
-
 
   @Override
   public void updateInstance(Id.DatasetInstance datasetInstanceId,
@@ -133,28 +134,40 @@ public class PreviewDatasetFramework implements DatasetFramework {
     return actualDatasetFramework.hasType(datasetTypeId);
   }
 
+  @Nullable
+  @Override
+  public DatasetTypeMeta getTypeInfo(Id.DatasetType datasetTypeId) throws DatasetManagementException {
+    if (Id.Namespace.SYSTEM.equals(datasetTypeId.getNamespace())) {
+      return localDatasetFramework.getTypeInfo(datasetTypeId);
+    }
+    return actualDatasetFramework.getTypeInfo(datasetTypeId);
+  }
+
   @Override
   public void truncateInstance(Id.DatasetInstance datasetInstanceId) throws DatasetManagementException, IOException {
     if (Id.Namespace.SYSTEM.equals(datasetInstanceId.getNamespace())) {
       localDatasetFramework.truncateInstance(datasetInstanceId);
+    } else {
+      actualDatasetFramework.truncateInstance(datasetInstanceId);
     }
-    actualDatasetFramework.truncateInstance(datasetInstanceId);
   }
 
   @Override
   public void deleteInstance(Id.DatasetInstance datasetInstanceId) throws DatasetManagementException, IOException {
     if (Id.Namespace.SYSTEM.equals(datasetInstanceId.getNamespace())) {
       localDatasetFramework.deleteInstance(datasetInstanceId);
+    } else {
+      actualDatasetFramework.deleteInstance(datasetInstanceId);
     }
-    actualDatasetFramework.deleteInstance(datasetInstanceId);
   }
 
   @Override
   public void deleteAllInstances(Id.Namespace namespaceId) throws DatasetManagementException, IOException {
     if (Id.Namespace.SYSTEM.equals(namespaceId)) {
       localDatasetFramework.deleteAllInstances(namespaceId);
+    } else {
+      actualDatasetFramework.deleteAllInstances(namespaceId);
     }
-    actualDatasetFramework.deleteAllInstances(namespaceId);
   }
 
   @Nullable
@@ -184,39 +197,12 @@ public class PreviewDatasetFramework implements DatasetFramework {
   @Override
   public <T extends Dataset> T getDataset(Id.DatasetInstance datasetInstanceId,
                                           @Nullable Map<String, String> arguments,
-                                          @Nullable ClassLoader classLoader,
-                                          @Nullable Iterable<? extends Id> owners)
-    throws DatasetManagementException, IOException {
-    if (Id.Namespace.SYSTEM.equals(datasetInstanceId.getNamespace())) {
-      return localDatasetFramework.getDataset(datasetInstanceId, arguments, classLoader, owners);
-    }
-    return actualDatasetFramework.getDataset(datasetInstanceId, arguments, classLoader, owners);
-  }
-
-  @Nullable
-  @Override
-  public <T extends Dataset> T getDataset(Id.DatasetInstance datasetInstanceId,
-                                          @Nullable Map<String, String> arguments,
                                           @Nullable ClassLoader classLoader)
     throws DatasetManagementException, IOException {
     if (Id.Namespace.SYSTEM.equals(datasetInstanceId.getNamespace())) {
       return localDatasetFramework.getDataset(datasetInstanceId, arguments, classLoader);
     }
     return actualDatasetFramework.getDataset(datasetInstanceId, arguments, classLoader);
-  }
-
-  @Nullable
-  @Override
-  public <T extends Dataset> T getDataset(Id.DatasetInstance datasetInstanceId,
-                                          @Nullable Map<String, String> arguments,
-                                          @Nullable ClassLoader classLoader,
-                                          DatasetClassLoaderProvider classLoaderProvider,
-                                          @Nullable Iterable<? extends Id> owners)
-    throws DatasetManagementException, IOException {
-    if (Id.Namespace.SYSTEM.equals(datasetInstanceId.getNamespace())) {
-      return localDatasetFramework.getDataset(datasetInstanceId, arguments, classLoader, classLoaderProvider, owners);
-    }
-    return actualDatasetFramework.getDataset(datasetInstanceId, arguments, classLoader, classLoaderProvider, owners);
   }
 
   @Nullable
@@ -236,20 +222,10 @@ public class PreviewDatasetFramework implements DatasetFramework {
 
   @Override
   public void writeLineage(Id.DatasetInstance datasetInstanceId, AccessType accessType) {
-    //TODO: verify this
     if (Id.Namespace.SYSTEM.equals(datasetInstanceId.getNamespace())) {
       localDatasetFramework.writeLineage(datasetInstanceId, accessType);
+    } else {
+      actualDatasetFramework.writeLineage(datasetInstanceId, accessType);
     }
-    actualDatasetFramework.writeLineage(datasetInstanceId, accessType);
-  }
-
-  @Override
-  public void createNamespace(Id.Namespace namespaceId) throws DatasetManagementException {
-    throw new UnsupportedOperationException(String.format("Namespace %s cannot be created in preview", namespaceId));
-  }
-
-  @Override
-  public void deleteNamespace(Id.Namespace namespaceId) throws DatasetManagementException {
-    throw new UnsupportedOperationException(String.format("Namespace %s cannot be deleted in preview", namespaceId));
   }
 }

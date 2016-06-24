@@ -100,20 +100,15 @@ public final class RouterPathLookup extends AbstractHttpHandler {
       matches(uriParts, "v3", "namespaces", null, "streams", null, "lineage") ||
       matches(uriParts, "v3", "namespaces", null, "apps", null, null, null, "runs", null, "metadata")) {
       return Constants.Service.METADATA_SERVICE;
-<<<<<<< 13a065a200a21cb0bfdc93285d3018e34f323658
     } else if (matches(uriParts, "v3", "security", "authorization") ||
       matches(uriParts, "v3", "namespaces", null, "securekeys")) {
       // Authorization and Secure Store Handlers currently run in App Fabric
       return Constants.Service.APP_FABRIC_HTTP;
     } else if (matches(uriParts, "v3", "security", "store", "namespaces", null)) {
-=======
+      return Constants.Service.APP_FABRIC_HTTP;
     } else if (matches(uriParts, "v3", "namespaces", null, "previews", null) ||
       matches(uriParts, "v3", "namespaces", null, "preview")) {
       return Constants.Service.PREVIEW_HTTP;
-    } else if (matches(uriParts, "v3", "security", "authorization")) {
-      // Authorization Handler currently runs in App Fabric
->>>>>>> Implementation of preview main and preview service
-      return Constants.Service.APP_FABRIC_HTTP;
     } else if ((matches(uriParts, "v3", "namespaces", null, "streams", null, "programs")
       || matches(uriParts, "v3", "namespaces", null, "data", "datasets", null, "programs")) &&
       requestMethod.equals(AllowedMethod.GET)) {

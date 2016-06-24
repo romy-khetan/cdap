@@ -44,19 +44,6 @@ public final class DiscoveryRuntimeModule extends RuntimeModule {
     return new InMemoryDiscoveryModule();
   }
 
-  public Module getPreviewModules(final InMemoryDiscoveryService discoveryService) {
-    return new AbstractModule() {
-      @Override
-      protected void configure() {
-        bind(DiscoveryService.class).annotatedWith(
-          Names.named("shared-discovery-service")).toInstance(discoveryService);
-        bind(InMemoryDiscoveryService.class).in(Singleton.class);
-        bind(DiscoveryService.class).to(InMemoryDiscoveryService.class);
-        bind(DiscoveryServiceClient.class).to(InMemoryDiscoveryService.class);
-      }
-    };
-  }
-
   @Override
   public Module getDistributedModules() {
     return new ZKDiscoveryModule();

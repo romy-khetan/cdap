@@ -188,6 +188,8 @@ public final class Constants {
    * Preview Configurations
    */
   public class Preview {
+    public static final String ENABLED = "preview.enabled";
+
     /**
      * Guice named bindings.
      */

@@ -144,11 +144,6 @@
     </description>
   </property>
 
-  <property>
-    <name>standalone.disable.ui</name>
-    <value>false</value>
-  </property>
-
   <!-- Zookeeper Configuration (only used when Zookeeper server is started in Standalone) -->
 
   <property>
@@ -198,6 +193,14 @@
     </value>
     <description>
       Application configuration for Tracker
+    </description>
+  </property>
+
+  <property>
+    <name>preview.enabled</name>
+    <value>true</value>
+    <description>
+      Determines whether to enable preview in standalone
     </description>
   </property>
 
