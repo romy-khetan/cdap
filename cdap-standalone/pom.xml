@@ -323,11 +323,9 @@
                       <targetPath>bin</targetPath>
                     </resource>
                     <resource>
-                      <directory>${project.parent.basedir}/cdap-gateway/bin</directory>
+                      <directory>${project.parent.basedir}/cdap-common/bin</directory>
                       <targetPath>bin</targetPath>
-                      <excludes>
-                        <exclude>flume-client</exclude>
-                      </excludes>
+                      <filtering>true</filtering>
                     </resource>
                     <resource>
                       <directory>${project.parent.basedir}/cdap-data-fabric/bin</directory>
