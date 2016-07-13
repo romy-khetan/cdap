@@ -62,7 +62,7 @@ public class InMemoryDatasetOpExecutor extends AbstractIdleService implements Da
       throw new IllegalArgumentException("Dataset type cannot be instantiated for provided type meta: " + typeMeta);
     }
 
-    // TODO: Note - for now, just sending the name. However, type likely needs to be namesapce-aware too.
+    // TODO: Note - for now, just sending the name. However, type likely needs to be namespace-aware too.
     DatasetSpecification spec = type.configure(datasetInstanceId.getId(), props);
     DatasetAdmin admin = type.getAdmin(DatasetContext.from(datasetInstanceId.getNamespaceId()), spec);
     admin.create();

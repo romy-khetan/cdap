@@ -65,7 +65,6 @@ class RemoteOpsClient {
   private final Supplier<EndpointStrategy> endpointStrategySupplier;
   private final HttpRequestConfig httpRequestConfig;
 
-  @Inject
   RemoteOpsClient(CConfiguration cConf, final DiscoveryServiceClient discoveryClient) {
     this.endpointStrategySupplier = Suppliers.memoize(new Supplier<EndpointStrategy>() {
       @Override
@@ -125,7 +124,6 @@ class RemoteOpsClient {
                                                createErrorMessage(resolvedUrl, requestMethod, headers, body),
                                                response));
     } catch (IOException e) {
-      // throw diff type of Exception?
       throw new RuntimeException(createErrorMessage(resolvedUrl, requestMethod, headers, body),
                                  e);
     }

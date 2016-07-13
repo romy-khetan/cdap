@@ -61,16 +61,11 @@ import org.apache.twill.zookeeper.ZKClientService;
 import java.util.List;
 
 /**
- * Executes user code on behalf of a particular user inside
- * a container running as that user. For security.
+ * Executes user code on behalf of a particular user inside a YARN container, for security.
  */
 public class DatasetOpExecutorServerTwillRunnable extends AbstractMasterTwillRunnable {
 
-  // TODO: remove
-  public static final String DEFAULT_USER = "bob";
-
   private Injector injector;
-  private String user;
 
   public DatasetOpExecutorServerTwillRunnable(String name, String cConfName, String hConfName) {
     super(name, cConfName, hConfName);
@@ -78,8 +73,6 @@ public class DatasetOpExecutorServerTwillRunnable extends AbstractMasterTwillRun
 
   @Override
   protected void doInit(TwillContext context) {
-    this.user = DEFAULT_USER;
-
     CConfiguration cConf = getCConfiguration();
     Configuration hConf = getConfiguration();
 

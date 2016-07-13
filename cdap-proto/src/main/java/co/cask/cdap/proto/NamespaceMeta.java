@@ -50,7 +50,6 @@ public final class NamespaceMeta {
     return config;
   }
 
-
   /**
    * Builder used to build {@link NamespaceMeta}
    */
@@ -117,13 +116,6 @@ public final class NamespaceMeta {
         schedulerQueueName = "";
       }
 
-      if (principal == null) {
-        principal = "";
-      }
-
-      if (keytabPath == null) {
-        keytabPath = "";
-      }
       return new NamespaceMeta(name, description, new NamespaceConfig(schedulerQueueName, principal, keytabPath));
     }
   }

@@ -21,9 +21,10 @@ import co.cask.cdap.common.conf.CConfiguration;
 import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.common.kerberos.SecurityUtil;
 import co.cask.cdap.config.PreferencesStore;
+import co.cask.cdap.data2.security.ImpersonationInfo;
+import co.cask.cdap.data2.security.ImpersonationUserResolver;
 import co.cask.cdap.internal.app.runtime.ProgramOptionConstants;
 import co.cask.cdap.proto.Id;
-import co.cask.cdap.store.NamespaceStore;
 import com.google.common.collect.Maps;
 import com.google.inject.Inject;
 
@@ -61,8 +62,10 @@ public class PropertiesResolver {
     Map<String, String> systemArgs = Maps.newHashMap();
     systemArgs.put(Constants.AppFabric.APP_SCHEDULER_QUEUE, queueResolver.getQueue(id.getNamespace()));
     if (kerberosEnabled) {
-      systemArgs.put(ProgramOptionConstants.PRINCIPAL, impersonationUserResolver.getPrincipal(id.toEntityId()));
-      systemArgs.put(ProgramOptionConstants.KEYTAB_PATH, impersonationUserResolver.getKeytabPath(id.toEntityId()));
+      ImpersonationInfo impersonationInfo =
+        impersonationUserResolver.getImpersonationInfo(id.getNamespace().toEntityId());
+      systemArgs.put(ProgramOptionConstants.PRINCIPAL, impersonationInfo.getPrincipal());
+      systemArgs.put(ProgramOptionConstants.KEYTAB_PATH, impersonationInfo.getKeytabPath());
     }
     return systemArgs;
   }

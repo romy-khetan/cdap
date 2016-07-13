@@ -774,11 +774,6 @@ public final class Constants {
     public static final String CFG_CDAP_MASTER_KRB_KEYTAB_PATH = "cdap.master.kerberos.keytab";
     /** Kerberos principal used by CDAP master */
     public static final String CFG_CDAP_MASTER_KRB_PRINCIPAL = "cdap.master.kerberos.principal";
-
-    /** Path to the Kerberos keytab file used by CDAP programs */
-    public static final String CFG_CDAP_PROGRAMS_KRB_KEYTAB_PATH = "cdap.programs.kerberos.keytab";
-    /** Kerberos principal used by CDAP programs */
-    public static final String CFG_CDAP_PROGRAMS_KRB_PRINCIPAL = "cdap.programs.kerberos.principal";
   }
 
   /**

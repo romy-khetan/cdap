@@ -19,6 +19,7 @@ package co.cask.cdap.proto;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.Objects;
+import javax.annotation.Nullable;
 
 /**
  * Represents the configuration of a namespace. This class needs to be GSON serializable.
@@ -28,13 +29,15 @@ public class NamespaceConfig {
   @SerializedName("scheduler.queue.name")
   private final String schedulerQueueName;
 
-  @SerializedName("principal")
   private final String principal;
-
-  @SerializedName("keytab.path")
   private final String keytabPath;
 
-  public NamespaceConfig(String schedulerQueueName, String principal, String keytabPath) {
+  // default configuration
+  public NamespaceConfig() {
+    this("", null, null);
+  }
+
+  public NamespaceConfig(String schedulerQueueName, @Nullable String principal, @Nullable String keytabPath) {
     this.schedulerQueueName = schedulerQueueName;
     this.principal = principal;
     this.keytabPath = keytabPath;
@@ -44,10 +47,12 @@ public class NamespaceConfig {
     return schedulerQueueName;
   }
 
+  @Nullable
   public String getPrincipal() {
     return principal;
   }
 
+  @Nullable
   public String getKeytabPath() {
     return keytabPath;
   }
@@ -66,7 +71,6 @@ public class NamespaceConfig {
     return Objects.equals(schedulerQueueName, that.schedulerQueueName)
       && Objects.equals(principal, that.principal)
       && Objects.equals(keytabPath, that.keytabPath);
-
   }
 
   @Override

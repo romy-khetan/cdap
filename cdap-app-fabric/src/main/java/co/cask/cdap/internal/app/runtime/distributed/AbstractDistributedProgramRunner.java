@@ -30,6 +30,7 @@ import co.cask.cdap.common.lang.jar.BundleJarUtil;
 import co.cask.cdap.common.twill.AbortOnTimeoutEventHandler;
 import co.cask.cdap.common.twill.HadoopClassExcluder;
 import co.cask.cdap.common.utils.DirUtils;
+import co.cask.cdap.data2.security.ImpersonationUtils;
 import co.cask.cdap.data2.util.hbase.HBaseTableUtilFactory;
 import co.cask.cdap.internal.app.ApplicationSpecificationAdapter;
 import co.cask.cdap.internal.app.runtime.BasicArguments;
@@ -42,15 +43,11 @@ import co.cask.cdap.security.TokenSecureStoreUpdater;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.base.Throwables;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
-import com.google.common.io.ByteStreams;
 import com.google.common.io.Files;
-import com.google.common.io.InputSupplier;
 import com.google.common.io.Resources;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -70,28 +67,20 @@ import org.apache.twill.api.logging.PrinterLogHandler;
 import org.apache.twill.common.Threads;
 import org.apache.twill.filesystem.FileContextLocationFactory;
 import org.apache.twill.filesystem.Location;
-import org.apache.twill.filesystem.LocationFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.Writer;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.attribute.FileAttribute;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.annotation.Nullable;
@@ -111,11 +100,12 @@ public abstract class AbstractDistributedProgramRunner implements ProgramRunner 
   private static final String CDAP_CONF_FILE_NAME = "cConf.xml";
   private static final String APP_SPEC_FILE_NAME = "appSpec.json";
 
-  private final TwillRunner twillRunner;
   protected final YarnConfiguration hConf;
   protected final CConfiguration cConf;
   protected final EventHandler eventHandler;
+  private final TwillRunner twillRunner;
   private final TokenSecureStoreUpdater secureStoreUpdater;
+  private final FileContextLocationFactory fileContextLocationFactory;
 
   /**
    * An interface for launching TwillApplication. Used by sub-classes only.
@@ -168,40 +158,11 @@ public abstract class AbstractDistributedProgramRunner implements ProgramRunner 
     this.cConf = cConf;
     this.eventHandler = createEventHandler(cConf);
     this.secureStoreUpdater = tokenSecureStoreUpdater;
+    this.fileContextLocationFactory = new FileContextLocationFactory(hConf);
   }
 
   protected EventHandler createEventHandler(CConfiguration cConf) {
     return new AbortOnTimeoutEventHandler(cConf.getLong(Constants.CFG_TWILL_NO_CONTAINER_TIMEOUT, Long.MAX_VALUE));
-  }
-
-  // returns the path of the file, if its a local URI. If it's not a local file, copy it to local file system first.
-  private String getKeytabPath(URI keytabURI, File tempDir) throws IOException {
-    // if scheme is not specified, assume its local file
-    if (keytabURI.getScheme() == null || "file".equals(keytabURI.getScheme())) {
-      return keytabURI.getPath();
-    }
-
-    // create a local file with restricted permissions
-    // only allow the owner to read/write, since it contains credentials
-    FileAttribute<Set<PosixFilePermission>> ownerOnlyAttrs =
-      PosixFilePermissions.asFileAttribute(ImmutableSet.of(PosixFilePermission.OWNER_WRITE,
-                                                           PosixFilePermission.OWNER_READ));
-    Path localKeytabFile = java.nio.file.Files.createFile(Paths.get(tempDir.getAbsolutePath(), "keytab.localized"),
-                                                          ownerOnlyAttrs);
-
-    // copy from HDFS to this local file
-    LocationFactory locationFactory = new FileContextLocationFactory(hConf);
-    final Location location = locationFactory.create(keytabURI);
-    LOG.info("Copying keytab file from {} to {}", location, localKeytabFile);
-    Files.copy(new InputSupplier<InputStream>() {
-      @Override
-      public InputStream getInput() throws IOException {
-        return location.getInputStream();
-      }
-    }, localKeytabFile.toFile());
-
-
-    return localKeytabFile.toFile().getPath();
   }
 
   @Override
@@ -358,7 +319,8 @@ public abstract class AbstractDistributedProgramRunner implements ProgramRunner 
       LOG.info("Configured principal={}, keytab={}", principal, keytabPath);
 
       String expandedPrincipal = SecurityUtil.expandPrincipal(principal);
-      String localizedKeytabPath = getKeytabPath(URI.create(keytabPath), tempDir);
+      String localizedKeytabPath = ImpersonationUtils.localizeKeytab(fileContextLocationFactory,
+                                                                     URI.create(keytabPath), tempDir);
       LOG.info("Logging in as: principal={}, keytab={}", expandedPrincipal, localizedKeytabPath);
 
       UserGroupInformation impersonatedUGI =
