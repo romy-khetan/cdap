@@ -40,8 +40,8 @@ File paths can either be absolute paths or, in the case of
 .. _enabling-security:
 
 
-Enabling Security (Standalone CDAP)
------------------------------------
+Enabling Perimeter Security (Standalone CDAP)
+---------------------------------------------
 
 To enable security in :term:`Standalone CDAP <standalone cdap>`, add these properties to ``cdap-site.xml``:
 
@@ -60,8 +60,8 @@ Client Authentication then needs to be configured, as described below under
 With Standalone CDAP, the simplest is :ref:`Basic Authentication <installation-basic-authentication>`.
 
 
-Enabling Security (Distributed CDAP)
-------------------------------------
+Enabling Perimeter Security (Distributed CDAP)
+----------------------------------------------
 To enable security in :term:`Distributed CDAP <distributed cdap>`, add these properties to ``cdap-site.xml``:
 
 ================================================= ===================== =====================================================
@@ -485,3 +485,16 @@ will use ``https`` instead of ``http``.
 
 - Visiting the CDAP UI should redirect you to a login page that prompts for credentials.
   Entering the credentials that you have configured should let you work with the CDAP UI as normal.
+
+
+Enabling Authorization
+----------------------
+
+To enable security in :term:`Distributed CDAP <distributed cdap>`, add these properties to ``cdap-site.xml``:
+
+<add parameters>
+
+Authorization in CDAP is implemented as extensions <link to Authorization Extensions doc>. In addition to the
+above properties, an extension may require additional properties to be configured. Extension properties, which are also
+specified in ``cdap-site.xml``, begin with the prefix ``security.authorization.extension.config.``. Please see the
+documentation <link> on individual extensions for configuring properties specific to extensions.

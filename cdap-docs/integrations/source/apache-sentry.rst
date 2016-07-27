@@ -1,0 +1,1 @@
+Placeholder fo integration document with Apache Sentry

@@ -1,0 +1,1 @@
+Placeholder for documentation on building an authorization extension
