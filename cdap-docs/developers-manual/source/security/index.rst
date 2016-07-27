@@ -17,6 +17,8 @@ Security
    cdap-authentication-clients-java
    cdap-authentication-clients-python
    custom-authentication
+   secure-impersonation
+   authorization-extensions
 
 
 Cask Data Application Platform (CDAP) supports securing clusters using perimeter
@@ -66,3 +68,16 @@ Two authentication client libraries are included with CDAP:
 
 If the standard authentication mechanisms are not sufficient, you can provide a
 :ref:`custom authentication mechanism <developers-custom-authentication>`.
+
+
+.. rubric:: Secure Impersonation
+
+:doc:`Secure Impersonation <secure-impersonation>`
+
+TO BE COMPLETED
+
+.. rubric:: Authorization Extensions
+
+:doc:`Authorization Extensions <authorization-extensions>`
+
+TO BE COMPLETED

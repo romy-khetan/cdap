@@ -487,14 +487,20 @@ will use ``https`` instead of ``http``.
   Entering the credentials that you have configured should let you work with the CDAP UI as normal.
 
 
+.. _security-enabling-authorization:
+
 Enabling Authorization
 ----------------------
+To enable authorization in :term:`Distributed CDAP <distributed cdap>`, add
+these properties to ``cdap-site.xml``:
 
-To enable security in :term:`Distributed CDAP <distributed cdap>`, add these properties to ``cdap-site.xml``:
+  <add parameters>
 
-<add parameters>
+Authorization in CDAP is implemented as extensions <link to Authorization Extensions doc>.
+In addition to the above properties, an extension may require additional properties to be
+configured. Extension properties, which are also specified in ``cdap-site.xml``, begin
+with the prefix ``security.authorization.extension.config``. Please see the documentation
+<link> on individual extensions for configuring properties specific to that extension.
 
-Authorization in CDAP is implemented as extensions <link to Authorization Extensions doc>. In addition to the
-above properties, an extension may require additional properties to be configured. Extension properties, which are also
-specified in ``cdap-site.xml``, begin with the prefix ``security.authorization.extension.config.``. Please see the
-documentation <link> on individual extensions for configuring properties specific to extensions.
+TO BE COMPLETED
+

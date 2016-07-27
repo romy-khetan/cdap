@@ -15,3 +15,4 @@ CDAP Integrations Table of Contents
     CDAP ODBC Driver <odbc>
     Pentaho Data Integration <pentaho>
     SquirrelSQL <squirrel>
+    Apache Sentry <apache-sentry>

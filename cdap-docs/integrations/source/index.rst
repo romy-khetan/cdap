@@ -95,3 +95,10 @@ The example :ref:`cdap-bi-guide` includes the use of Pentaho.
 - |squirrel|_ A simple JDBC client which **executes SQL queries** against many different relational databases.
 
 
+.. rubric:: Apache Sentry
+
+.. |apache-sentry| replace:: **Integrations:**
+.. _apache-sentry: apache-sentry.html
+
+- |apache-sentry|_ Configuring and integrating CDAP with **Apache Sentry**
+
