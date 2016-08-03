@@ -18,6 +18,7 @@ function TimelineController ($scope, LogViewerStore, LOGVIEWERSTORE_ACTIONS, myL
 
   var dataSrc = new MyCDAPDataSource($scope);
   this.pinScrollPosition = 0;
+  $scope.pinScrollingPosition = 0;
 
   this.updateStartTimeInStore = function(val) {
     LogViewerStore.dispatch({
@@ -59,6 +60,10 @@ function TimelineController ($scope, LogViewerStore, LOGVIEWERSTORE_ACTIONS, myL
       $scope.metadata = res;
       $scope.sliderBarPositionRefresh = LogViewerStore.getState().startTime;
       $scope.initialize();
+      if (res.status === 'KILLED' || res.status==='COMPLETED' || res.status === 'FAILED' || res.status === 'STOPPED') {
+        dataSrc.stopPoll(pollPromise.__pollId__);
+        pollPromise = null;
+      }
     }, (err) => {
       console.log('ERROR: ', err);
     });
@@ -66,8 +71,9 @@ function TimelineController ($scope, LogViewerStore, LOGVIEWERSTORE_ACTIONS, myL
 
   LogViewerStore.subscribe(() => {
     this.pinScrollPosition = LogViewerStore.getState().scrollPosition;
-    if($scope.updatePinScale !== undefined){
-      $scope.updatePinScale(this.pinScrollPosition);
+    if(typeof $scope.updatePin !== 'undefined'){
+      $scope.pinScrollingPosition = this.pinScrollPosition;
+      $scope.updatePin();
     }
   });
 
@@ -83,8 +89,13 @@ function TimelineController ($scope, LogViewerStore, LOGVIEWERSTORE_ACTIONS, myL
     runId : this.runId,
   }).$promise.then(
     (res) => {
+
+      if(res.start === res.end){
+        res.end++;
+      }
+
       apiSettings.metric.startTime = res.start;
-      apiSettings.metric.endTime = 'now';
+      apiSettings.metric.endTime = res.end;
       pollForMetadata();
     },
     (err) => {

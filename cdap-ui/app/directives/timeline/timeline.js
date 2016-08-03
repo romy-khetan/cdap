@@ -29,6 +29,7 @@ function link (scope, element) {
       startTime,
       endTime,
       pinOffset,
+      handleWidth,
       firstRun = true;
 
   //Components
@@ -44,7 +45,8 @@ function link (scope, element) {
       scrollPinSvg,
       xAxis,
       sliderBar,
-      scrollNeedle;
+      scrollNeedle,
+      tooltipDiv;
 
   //Initialize charting
   scope.initialize = () => {
@@ -63,26 +65,14 @@ function link (scope, element) {
     height = 50;
     paddingLeft = 15;
     paddingRight = 15;
-    // maxRange = width - paddingLeft - paddingRight;
-    maxRange = width - paddingRight + 8;
+    handleWidth = 8;
+    // maxRange = width - width of handle - width of needle;
+    maxRange = width - 12;
     sliderLimit = maxRange;
     pinOffset = 13;
-    // sliderLimit = maxRange + 24;
     pinX = 0;
     sliderX = 0;
     timelineStack = {};
-    sliderHandle = undefined;
-    pinHandle = undefined;
-    sliderBrush = undefined;
-    scrollPinBrush = undefined;
-    scrollNeedle = undefined;
-    xScale = undefined;
-    slide = undefined;
-    slider = undefined;
-    timescaleSvg = undefined;
-    scrollPinSvg = undefined;
-    xAxis = undefined;
-    sliderBar = undefined;
     timelineData = scope.metadata;
 
     scope.plot();
@@ -129,10 +119,19 @@ function link (scope, element) {
   // -------------------------Build Brush / Sliders------------------------- //
   function renderBrushAndSlider(){
 
+    let pinScrollXPosition = xScale(scope.pinScrollingPosition);
+
     timescaleSvg.append('g')
       .attr('class', 'xaxis-bottom')
-      .attr('transform', 'translate(' + ( (paddingLeft + paddingRight) / 2) + ',' + (height - 20) + ')')
+      .attr('transform', 'translate(' + handleWidth + ', ' + (height - 20) + ')')
       .call(xAxis);
+
+    function updateScrollWithNewStart(startValue, currentPosition){
+      if(startValue > currentPosition){
+        scope.pinScrollingPosition = xScale.invert(startValue);
+        scope.updatePin();
+      }
+    }
 
     //attach handler to brush
     sliderBrush = d3.svg.brush()
@@ -148,9 +147,7 @@ function link (scope, element) {
             }
             sliderHandle.attr('x', val);
             sliderBar.attr('d', 'M0,0V0H' + val + 'V0');
-            pinHandle.attr('x', val-pinOffset+1);
-            scrollNeedle.attr('x1', val + 8)
-                        .attr('x2', val + 8);
+            updateScrollWithNewStart(val, pinScrollXPosition);
           }
         })
         .on('brushend', function() {
@@ -163,9 +160,7 @@ function link (scope, element) {
               val = maxRange;
             }
             updateSlider(val);
-            pinHandle.attr('x', val-pinOffset+1);
-            scrollNeedle.attr('x1', val + 8)
-                        .attr('x2', val + 8);
+            updateScrollWithNewStart(val, pinScrollXPosition);
           }
        });
 
@@ -197,7 +192,7 @@ function link (scope, element) {
     sliderBar.attr('d', 'M0,0V0H' + xValue + 'V0');
 
     sliderHandle = slide.append('svg:image')
-      .attr('width', 8)
+      .attr('width', handleWidth)
       .attr('height', 52)
       .attr('xlink:href', '/assets/img/sliderHandle.svg')
       .attr('x', xValue-1)
@@ -229,26 +224,52 @@ function link (scope, element) {
     slider.select('.background')
       .attr('height', 15);
 
+    let thePinScrollPosition = xScale(scope.pinScrollingPosition);
+
     pinHandle = slider.append('svg:image')
       .attr('width', 40)
       .attr('height', 60)
       .attr('xlink:href', '/assets/img/scrollPin.svg')
-      .attr('x', xValue - pinOffset)
-      .attr('y', 0);
+      .attr('x', thePinScrollPosition - pinOffset)
+      .attr('y', 0)
+      .on('mouseover', function() {
+        tooltipDiv = d3.select('body').append('div')
+          .attr('class', 'tooltip')
+          .style('opacity', 0);
+
+        //Reposition tooltip if overflows on the side of the page ; tooltip width is 250
+        let overflowOffset = xScale(scope.pinScrollingPosition) + 250 > maxRange ? 250 : 0;
+
+        tooltipDiv.transition()
+          .duration(200)
+          .style('opacity', 0.9)
+          .attr('class', 'timeline-tooltip');
+        tooltipDiv.html(scope.pinScrollingPosition)
+          .style('left', (d3.event.pageX - overflowOffset) + 'px')
+          .style('top', (d3.event.pageY - 28) + 'px');
+      })
+      .on('mouseout', function() {
+        d3.selectAll('.timeline-tooltip').remove();
+      });
 
     scrollNeedle = slide.append('line')
-      .attr('x1', xValue + pinOffset - 6)
-      .attr('x2', xValue + pinOffset - 6)
+      .attr('x1', thePinScrollPosition + pinOffset - 6)
+      .attr('x2', thePinScrollPosition + pinOffset - 6)
       .attr('y1', -10)
       .attr('y2', 40)
       .attr('stroke-width', 1)
       .attr('stroke', 'grey');
   }
 
-  scope.updatePinScale = function (val) {
-    if(pinHandle !== undefined){
-      pinHandle.attr('x', xScale(Math.floor(val/1000)));
-      scrollNeedle.attr('x', xScale(Math.floor(val/1000)));
+  scope.updatePin = function () {
+    let xPositionVal = Math.floor(xScale(scope.pinScrollingPosition));
+    if(xPositionVal < 0 || xPositionVal > maxRange){
+      return;
+    }
+    if(typeof pinHandle !== 'undefined'){
+     pinHandle.attr('x', xPositionVal - pinOffset + 1);
+     scrollNeedle.attr('x1', xPositionVal + 8)
+      .attr('x2', xPositionVal + 8);
     }
   };
 
@@ -291,7 +312,7 @@ function link (scope, element) {
           let xVal = Math.floor(xScale(currentItem.time));
           let numEvents = currentItem.value;
 
-          if(timelineStack[xVal] === undefined) {
+          if(typeof timelineStack[xVal] === 'undefined') {
             timelineStack[xVal] = 0;
           }
 
