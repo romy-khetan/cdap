@@ -82,7 +82,7 @@ public class ImpersonationHandler extends AbstractHttpHandler {
     Credentials credentials = ImpersonationUtils.doAs(ugi, new Callable<Credentials>() {
       @Override
       public Credentials call() throws Exception {
-        SecureStore update = tokenSecureStoreUpdater.update(null, null);
+        SecureStore update = tokenSecureStoreUpdater.doUpdate();
         return update.getStore();
       }
     });

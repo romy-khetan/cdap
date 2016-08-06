@@ -41,7 +41,6 @@ import co.cask.cdap.internal.app.runtime.SimpleProgramOptions;
 import co.cask.cdap.internal.app.runtime.codec.ArgumentsCodec;
 import co.cask.cdap.internal.app.runtime.codec.ProgramOptionsCodec;
 import co.cask.cdap.proto.id.NamespaceId;
-import co.cask.cdap.security.DefaultUGIProvider;
 import co.cask.cdap.security.TokenSecureStoreUpdater;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
@@ -262,7 +261,7 @@ public abstract class AbstractDistributedProgramRunner implements ProgramRunner 
               // Add secure tokens
               if (User.isHBaseSecurityEnabled(hConf) || UserGroupInformation.isSecurityEnabled()) {
                 // TokenSecureStoreUpdater.update() ignores parameters
-                twillPreparer.addSecureStore(secureStoreUpdater.update(null, null));
+                twillPreparer.addSecureStore(secureStoreUpdater.doUpdate());
               }
 
               Iterable<Class<?>> dependencies = Iterables.concat(
