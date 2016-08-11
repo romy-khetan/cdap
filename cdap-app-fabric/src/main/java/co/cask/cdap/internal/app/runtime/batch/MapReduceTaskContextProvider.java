@@ -18,6 +18,7 @@ package co.cask.cdap.internal.app.runtime.batch;
 
 import co.cask.cdap.api.mapreduce.MapReduceSpecification;
 import co.cask.cdap.api.metrics.MetricsCollectionService;
+import co.cask.cdap.api.metrics.MetricsContext;
 import co.cask.cdap.app.metrics.MapReduceMetrics;
 import co.cask.cdap.app.program.DefaultProgram;
 import co.cask.cdap.app.program.Program;
@@ -47,6 +48,7 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.annotation.Nullable;
 
 /**
  * Provides access to MapReduceTaskContext for mapreduce job tasks.
@@ -102,8 +104,19 @@ public class MapReduceTaskContextProvider extends AbstractIdleService {
    * Returns the {@link BasicMapReduceTaskContext} for the given task.
    */
   public final <K, V> BasicMapReduceTaskContext<K, V> get(TaskAttemptContext taskAttemptContext) {
-    ContextCacheKey key = new ContextCacheKey(taskAttemptContext);
+    return get(new ContextCacheKey(taskAttemptContext));
+  }
 
+  /**
+   * Returns the {@link BasicMapReduceTaskContext} for the given configuration. Since TaskAttemptContext is not
+   * provided, the returned MapReduceTaskContext will not have Metrics available.
+   */
+  public final <K, V> BasicMapReduceTaskContext<K, V> get(Configuration configuration) {
+    // TODO: still create a metric context, but it just omits task id and task type?
+    return get(new ContextCacheKey(null, configuration));
+  }
+
+  private <K, V> BasicMapReduceTaskContext<K, V> get(ContextCacheKey key) {
     @SuppressWarnings("unchecked")
     BasicMapReduceTaskContext<K, V> context = (BasicMapReduceTaskContext<K, V>) taskContexts.getUnchecked(key);
     return context;
@@ -165,22 +178,33 @@ public class MapReduceTaskContextProvider extends AbstractIdleService {
         }
 
         MapReduceSpecification spec = program.getApplicationSpecification().getMapReduce().get(program.getName());
-        MapReduceMetrics.TaskType taskType = null;
-        if (MapReduceMetrics.TaskType.hasType(key.getTaskAttemptID().getTaskType())) {
-          taskType = MapReduceMetrics.TaskType.from(key.getTaskAttemptID().getTaskType());
+
+        MetricsContext metricsContext = null;
+
+        TaskAttemptID taskAttemptID = key.getTaskAttemptID();
+        // taskAttemptId can be null, if used from a Partitioner, (TODO: add other types here)
+        if (taskAttemptID != null) {
+          String taskId = taskAttemptID.getTaskID().toString();
+          // this can be false (non mapper or reducer task type)... TODO: figure out when that is....
+          if (MapReduceMetrics.TaskType.hasType(taskAttemptID.getTaskType())) {
+            MapReduceMetrics.TaskType taskType = MapReduceMetrics.TaskType.from(taskAttemptID.getTaskType());
+            // if this is not for a mapper or a reducer, we don't need the metrics collection service
+            MetricsCollectionService metricsCollectionService = injector.getInstance(MetricsCollectionService.class);
+
+            metricsContext =
+              BasicMapReduceTaskContext.createMetricsContext(program, contextConfig.getRunId().getId(),
+                                                             metricsCollectionService, taskId, taskType, workflowInfo);
+          }
         }
-        // if this is not for a mapper or a reducer, we don't need the metrics collection service
-        MetricsCollectionService metricsCollectionService =
-          (taskType == null) ? null : injector.getInstance(MetricsCollectionService.class);
 
         TransactionSystemClient txClient = injector.getInstance(TransactionSystemClient.class);
 
+
         return new BasicMapReduceTaskContext(
-          program, taskType, contextConfig.getRunId(), key.getTaskAttemptID().getTaskID().toString(),
-          contextConfig.getArguments(), spec,
-          workflowInfo, discoveryServiceClient, metricsCollectionService, txClient,
-          contextConfig.getTx(), programDatasetFramework, classLoader.getPluginInstantiator(),
-          contextConfig.getLocalizedResources()
+          program, contextConfig.getRunId(), contextConfig.getArguments(), spec,
+          workflowInfo, discoveryServiceClient, txClient, contextConfig.getTx(),
+          programDatasetFramework, classLoader.getPluginInstantiator(),
+          contextConfig.getLocalizedResources(), metricsContext
         );
       }
     };
@@ -195,10 +219,15 @@ public class MapReduceTaskContextProvider extends AbstractIdleService {
     private final Configuration configuration;
 
     private ContextCacheKey(TaskAttemptContext context) {
-      this.taskAttemptID = context.getTaskAttemptID();
-      this.configuration = context.getConfiguration();
+      this(context.getTaskAttemptID(), context.getConfiguration());
     }
 
+    public ContextCacheKey(@Nullable TaskAttemptID taskAttemptID, Configuration configuration) {
+      this.taskAttemptID = taskAttemptID;
+      this.configuration = configuration;
+    }
+
+    @Nullable
     public TaskAttemptID getTaskAttemptID() {
       return taskAttemptID;
     }

@@ -91,25 +91,18 @@ public class BasicMapReduceTaskContext<KEYOUT, VALUEOUT> extends AbstractContext
   // TODO: (CDAP-3983) The datasets should be managed by the dataset context. That requires TEPHRA-99.
   private final Set<TransactionAware> txAwares = Sets.newIdentityHashSet();
 
-  public BasicMapReduceTaskContext(Program program,
-                                   @Nullable MapReduceMetrics.TaskType type,
-                                   RunId runId, String taskId,
-                                   Arguments runtimeArguments,
-                                   MapReduceSpecification spec,
-                                   @Nullable WorkflowProgramInfo workflowProgramInfo,
+  public BasicMapReduceTaskContext(Program program, RunId runId, Arguments runtimeArguments,
+                                   MapReduceSpecification spec, @Nullable WorkflowProgramInfo workflowProgramInfo,
                                    DiscoveryServiceClient discoveryServiceClient,
-                                   MetricsCollectionService metricsCollectionService,
-                                   TransactionSystemClient txClient,
-                                   Transaction transaction,
+                                   TransactionSystemClient txClient, Transaction transaction,
                                    DatasetFramework dsFramework,
                                    @Nullable PluginInstantiator pluginInstantiator,
-                                   Map<String, File> localizedResources) {
+                                   Map<String, File> localizedResources, @Nullable MetricsContext metricsContext) {
     super(program, runId, runtimeArguments, ImmutableSet.<String>of(),
-          createMetricsContext(program, runId.getId(), metricsCollectionService, taskId, type, workflowProgramInfo),
-          dsFramework, txClient, discoveryServiceClient, false, pluginInstantiator);
+          metricsContext, dsFramework, txClient, discoveryServiceClient, false, pluginInstantiator);
     this.workflowProgramInfo = workflowProgramInfo;
     this.transaction = transaction;
-    this.userMetrics = new ProgramUserMetrics(getProgramMetrics());
+    this.userMetrics = metricsContext == null ? null : new ProgramUserMetrics(getProgramMetrics());
     this.spec = spec;
     this.plugins = Maps.newHashMap(program.getApplicationSpecification().getPlugins());
     this.taskLocalizationContext = new DefaultTaskLocalizationContext(localizedResources);
@@ -119,7 +112,7 @@ public class BasicMapReduceTaskContext<KEYOUT, VALUEOUT> extends AbstractContext
 
   @Override
   public String toString() {
-    return String.format("job=%s,=%s", spec.getName(), super.toString());
+    return String.format("name=%s,%s", spec.getName(), super.toString());
   }
 
   @Override
@@ -193,15 +186,15 @@ public class BasicMapReduceTaskContext<KEYOUT, VALUEOUT> extends AbstractContext
     return inputName;
   }
 
-  private static MetricsContext createMetricsContext(Program program, String runId, MetricsCollectionService service,
-                                                     String taskId, @Nullable MapReduceMetrics.TaskType type,
-                                                     @Nullable WorkflowProgramInfo workflowProgramInfo) {
+  public static MetricsContext createMetricsContext(Program program, String runId,
+                                                    MetricsCollectionService service,
+                                                    String taskId, MapReduceMetrics.TaskType type,
+                                                    @Nullable WorkflowProgramInfo workflowProgramInfo) {
+
     Map<String, String> tags = Maps.newHashMap();
     tags.putAll(getMetricsContext(program, runId));
-    if (type != null) {
-      tags.put(Constants.Metrics.Tag.MR_TASK_TYPE, type.getId());
-      tags.put(Constants.Metrics.Tag.INSTANCE_ID, taskId);
-    }
+    tags.put(Constants.Metrics.Tag.MR_TASK_TYPE, type.getId());
+    tags.put(Constants.Metrics.Tag.INSTANCE_ID, taskId);
 
     if (workflowProgramInfo != null) {
       // If running inside Workflow, add the WorkflowMetricsContext as well

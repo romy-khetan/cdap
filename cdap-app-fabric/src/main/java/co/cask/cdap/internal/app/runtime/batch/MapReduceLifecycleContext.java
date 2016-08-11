@@ -284,4 +284,9 @@ public class MapReduceLifecycleContext<KEY, VALUE> implements MapReduceTaskConte
   public Admin getAdmin() {
     return delegate.getAdmin();
   }
+
+  @Override
+  public String toString() {
+    return delegate.toString();
+  }
 }
