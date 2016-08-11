@@ -69,7 +69,8 @@ abstract class AbstractStorageProviderNamespaceAdmin implements StorageProviderN
 
     createLocation(namespaceMeta);
 
-    if (cConf.getBoolean(Constants.Explore.EXPLORE_ENABLED)) {
+    if (cConf.getBoolean(Constants.Explore.EXPLORE_ENABLED) &&
+      !NamespaceId.DEFAULT.equals(namespaceMeta.getNamespaceId())) {
       try {
         exploreFacade.createNamespace(namespaceMeta);
       } catch (ExploreException | SQLException e) {
@@ -93,7 +94,7 @@ abstract class AbstractStorageProviderNamespaceAdmin implements StorageProviderN
 
     deleteLocation(namespaceId);
 
-    if (cConf.getBoolean(Constants.Explore.EXPLORE_ENABLED)) {
+    if (cConf.getBoolean(Constants.Explore.EXPLORE_ENABLED) && !NamespaceId.DEFAULT.equals(namespaceId)) {
       exploreFacade.removeNamespace(namespaceId.toId());
     }
   }

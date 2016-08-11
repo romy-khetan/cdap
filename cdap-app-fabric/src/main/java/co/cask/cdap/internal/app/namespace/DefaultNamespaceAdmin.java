@@ -32,6 +32,8 @@ import co.cask.cdap.common.namespace.NamespaceAdmin;
 import co.cask.cdap.config.DashboardStore;
 import co.cask.cdap.config.PreferencesStore;
 import co.cask.cdap.data2.dataset2.DatasetFramework;
+import co.cask.cdap.data2.security.ImpersonationInfo;
+import co.cask.cdap.data2.security.ImpersonationUserResolver;
 import co.cask.cdap.data2.security.Impersonator;
 import co.cask.cdap.data2.transaction.queue.QueueAdmin;
 import co.cask.cdap.data2.transaction.stream.StreamAdmin;
@@ -59,6 +61,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 import com.google.inject.Inject;
+import org.apache.hadoop.security.authentication.util.KerberosName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -66,6 +69,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.sql.SQLException;
+import java.util.EnumSet;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.regex.Pattern;
@@ -94,6 +98,8 @@ public final class DefaultNamespaceAdmin extends DefaultNamespaceQueryAdmin impl
   private final StorageProviderNamespaceAdmin storageProviderNamespaceAdmin;
   private final Impersonator impersonator;
   private final Pattern namespacePattern = Pattern.compile("[a-zA-Z0-9_]+");
+  private final ImpersonationUserResolver impersonationUserResolver;
+  private final boolean kerberosEnabled;
 
   @Inject
   DefaultNamespaceAdmin(Store store, NamespaceStore nsStore, PreferencesStore preferencesStore,
@@ -105,7 +111,8 @@ public final class DefaultNamespaceAdmin extends DefaultNamespaceQueryAdmin impl
                         AuthorizerInstantiator authorizerInstantiator,
                         CConfiguration cConf, StorageProviderNamespaceAdmin storageProviderNamespaceAdmin,
                         Impersonator impersonator, AuthorizationEnforcer authorizationEnforcer,
-                        AuthenticationContext authenticationContext) {
+                        AuthenticationContext authenticationContext,
+                        ImpersonationUserResolver impersonationUserResolver) {
     super(nsStore, authorizationEnforcer, authenticationContext);
     this.queueAdmin = queueAdmin;
     this.streamAdmin = streamAdmin;
@@ -118,11 +125,13 @@ public final class DefaultNamespaceAdmin extends DefaultNamespaceQueryAdmin impl
     this.metricStore = metricStore;
     this.applicationLifecycleService = applicationLifecycleService;
     this.artifactRepository = artifactRepository;
+    this.impersonationUserResolver = impersonationUserResolver;
     this.authorizer = authorizerInstantiator.get();
     this.authorizationEnforcer = authorizationEnforcer;
     this.instanceId = createInstanceId(cConf);
     this.storageProviderNamespaceAdmin = storageProviderNamespaceAdmin;
     this.impersonator = impersonator;
+    this.kerberosEnabled = cConf.getBoolean(Constants.Security.KERBEROS_ENABLED);
   }
 
   /**
@@ -152,6 +161,19 @@ public final class DefaultNamespaceAdmin extends DefaultNamespaceQueryAdmin impl
     if (!(Principal.SYSTEM.equals(principal) && NamespaceId.DEFAULT.equals(namespace))) {
       authorizationEnforcer.enforce(instanceId, principal, Action.ADMIN);
       authorizer.grant(namespace, principal, ImmutableSet.of(Action.ALL));
+      // Also grant the namespace user all privileges on the namespace, if kerberos is enabled
+      if (kerberosEnabled) {
+        ImpersonationInfo impersonationInfo = impersonationUserResolver.getImpersonationInfo(metadata);
+        String namespacePrincipal = impersonationInfo.getPrincipal();
+        Preconditions.checkNotNull(
+          namespacePrincipal, "On a kerberos-enabled cluster, the namespace principal is expected to be non-null. " +
+            "Namespace Metadata = %s. If impersonation is not enabled for namespace %s, please make sure that the " +
+            "CDAP master's principal specified by %s is not null.",
+          metadata, namespace, Constants.Security.CFG_CDAP_MASTER_KRB_PRINCIPAL);
+        String namespaceUserName = new KerberosName(namespacePrincipal).getShortName();
+        Principal namespaceUser = new Principal(namespaceUserName, Principal.PrincipalType.USER);
+        authorizer.grant(namespace, namespaceUser, EnumSet.allOf(Action.class));
+      }
     }
 
     // store the meta first in the namespace store because namespacedlocationfactory need to look up location
@@ -376,35 +398,7 @@ public final class DefaultNamespaceAdmin extends DefaultNamespaceQueryAdmin impl
       builder.setSchedulerQueueName(config.getSchedulerQueueName());
     }
 
-    // we already checked namespace existence so the meta cannot be null here
-    if (config != null && config.getRootDirectory() != null) {
-      // if a root directory was given for update and it's not same as existing one throw exception
-      if (!config.getRootDirectory().equals(existingMeta.getConfig().getRootDirectory())) {
-        throw new BadRequestException(String.format("Updates to %s are not allowed. Cannot update from %s to %s.",
-                                                    NamespaceConfig.ROOT_DIRECTORY,
-                                                    existingMeta.getConfig().getRootDirectory(),
-                                                    config.getRootDirectory()));
-      }
-
-      if (config.getHbaseNamespace() != null
-        && (!config.getHbaseNamespace().equals(existingMeta.getConfig().getHbaseNamespace()))) {
-        throw new BadRequestException(String.format("Updates to %s are not allowed. Cannot update from %s to %s.",
-                                                    NamespaceConfig.HBASE_NAMESPACE,
-                                                    existingMeta.getConfig().getHbaseNamespace(),
-                                                    config.getHbaseNamespace()));
-      }
-    }
-
-    if (config != null && config.getHiveDatabase() != null) {
-      // if a hive database was given for update and it's not same as existing one throw exception
-      if (!config.getHiveDatabase().equals(existingMeta.getConfig().getHiveDatabase())) {
-        throw new BadRequestException(String.format("Updates to %s are not allowed. Cannot update from %s to %s.",
-                                                    NamespaceConfig.HIVE_DATABASE,
-                                                    existingMeta.getConfig().getHiveDatabase(),
-                                                    config.getHiveDatabase()));
-      }
-    }
-
+    validateNoMappingUpdates(existingMeta.getConfig(), config);
     nsStore.update(builder.build());
   }
 
@@ -427,5 +421,46 @@ public final class DefaultNamespaceAdmin extends DefaultNamespaceQueryAdmin impl
                                   "(underscores allowed). Its current invalid value is '%s'",
                                 Constants.INSTANCE_NAME, instanceName);
     return new InstanceId(instanceName);
+  }
+
+  private void validateNoMappingUpdates(NamespaceConfig existingConfig,
+                                        NamespaceConfig updatedConfig) throws BadRequestException {
+    if (updatedConfig == null) {
+      // nothing to validate
+      return;
+    }
+
+    String updatedRootDirectory = updatedConfig.getRootDirectory();
+    if (updatedRootDirectory != null && !updatedRootDirectory.equals(existingConfig.getRootDirectory())) {
+        throw new BadRequestException(String.format("Updates to %s are not allowed. Cannot update from %s to %s.",
+                                                    NamespaceConfig.ROOT_DIRECTORY, existingConfig.getRootDirectory(),
+                                                    updatedRootDirectory));
+    }
+
+    String updatedHBaseNamespace = updatedConfig.getHbaseNamespace();
+    if (updatedHBaseNamespace != null && !updatedHBaseNamespace.equals(existingConfig.getHbaseNamespace())) {
+      throw new BadRequestException(String.format("Updates to %s are not allowed. Cannot update from %s to %s.",
+                                                  NamespaceConfig.HBASE_NAMESPACE, existingConfig.getHbaseNamespace(),
+                                                  updatedHBaseNamespace));
+    }
+
+    String updatedHiveDatabase = updatedConfig.getHiveDatabase();
+    if (updatedHiveDatabase != null && !updatedHiveDatabase.equals(existingConfig.getHiveDatabase())) {
+      throw new BadRequestException(String.format("Updates to %s are not allowed. Cannot update from %s to %s.",
+                                                  NamespaceConfig.HIVE_DATABASE, existingConfig.getHiveDatabase(),
+                                                  updatedHiveDatabase));
+    }
+
+    String updatedPrincipal = updatedConfig.getPrincipal();
+    if (updatedPrincipal != null && !updatedPrincipal.equals(existingConfig.getPrincipal())) {
+      throw new BadRequestException(String.format("Updates to principal are not allowed. Cannot update from %s to %s.",
+                                                  existingConfig.getPrincipal(), updatedPrincipal));
+    }
+
+    String updatedKeytabURI = updatedConfig.getKeytabURI();
+    if (updatedKeytabURI != null && !updatedKeytabURI.equals(existingConfig.getKeytabURI())) {
+      throw new BadRequestException(String.format("Updates to principal are not allowed. Cannot update from %s to %s.",
+                                                  existingConfig.getPrincipal(), updatedKeytabURI));
+    }
   }
 }
