@@ -62,6 +62,9 @@ public final class DistributedStorageProviderNamespaceAdmin extends AbstractStor
   public void create(NamespaceMeta namespaceMeta) throws IOException, ExploreException, SQLException {
     // create filesystem directory
     super.create(namespaceMeta);
+    if (NamespaceId.DEFAULT.equals(namespaceMeta.getNamespaceId())) {
+      return;
+    }
     // TODO: CDAP-1519: Create base directory for filesets under namespace home
     // create HBase namespace
     String hbaseNamespace = tableUtil.getHBaseNamespace(namespaceMeta);
@@ -85,8 +88,11 @@ public final class DistributedStorageProviderNamespaceAdmin extends AbstractStor
   @SuppressWarnings("ConstantConditions")
   @Override
   public void delete(NamespaceId namespaceId) throws IOException, ExploreException, SQLException {
-    // soft delete namespace directory from filesystem
+    // delete namespace directory from filesystem
     super.delete(namespaceId);
+    if (NamespaceId.DEFAULT.equals(namespaceId)) {
+      return;
+    }
     // delete HBase namespace
     NamespaceConfig namespaceConfig;
     try {
