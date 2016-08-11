@@ -24,15 +24,18 @@ import co.cask.cdap.api.data.batch.Output;
 import co.cask.cdap.api.dataset.lib.KeyValueTable;
 import co.cask.cdap.api.mapreduce.AbstractMapReduce;
 import co.cask.cdap.api.mapreduce.MapReduceContext;
+import co.cask.cdap.api.mapreduce.MapReduceTaskContext;
 import co.cask.cdap.api.metrics.Metrics;
 import co.cask.common.http.HttpRequest;
 import co.cask.common.http.HttpRequests;
 import co.cask.common.http.HttpResponse;
 import com.google.gson.Gson;
 import org.apache.hadoop.io.Text;
+import org.apache.hadoop.io.WritableComparator;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.partition.HashPartitioner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,10 +59,46 @@ public class PurchaseHistoryBuilder extends AbstractMapReduce {
     setReducerResources(new Resources(1024));
   }
 
+  public static final class F extends HashPartitioner<Text, Purchase> implements ProgramLifecycle<MapReduceTaskContext> {
+    @Override
+    public int getPartition(Text key, Purchase value, int numReduceTasks) {
+      return super.getPartition(key, value, numReduceTasks);
+    }
+
+    @Override
+    public void initialize(MapReduceTaskContext context) throws Exception {
+
+    }
+
+    @Override
+    public void destroy() {
+
+    }
+  }
+
+  public static final class G extends WritableComparator implements ProgramLifecycle<MapReduceTaskContext> {
+
+    @Override
+    public void initialize(MapReduceTaskContext context) throws Exception {
+      System.out.println("abcdz: " + context);
+    }
+
+    @Override
+    public void destroy() {
+
+    }
+  }
+
+
+
   @Override
   public void initialize() throws Exception {
     MapReduceContext context = getContext();
     Job job = context.getHadoopJob();
+    job.setPartitionerClass(F.class);
+    job.setGroupingComparatorClass(G.class);
+
+    job.setNumReduceTasks(2);
     job.setReducerClass(PerUserReducer.class);
 
     context.addInput(Input.ofDataset("purchases"), PurchaseMapper.class);

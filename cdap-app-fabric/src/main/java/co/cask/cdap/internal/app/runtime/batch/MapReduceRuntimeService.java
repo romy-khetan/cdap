@@ -234,9 +234,13 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
       TaskType.MAP.setResources(mapredConf, context.getMapperResources());
       TaskType.REDUCE.setResources(mapredConf, context.getReducerResources());
 
-      // replace user's Mapper & Reducer's with our wrappers in job config
+      // replace user's Mapper, Reducer, Partitioner, and Comparator classes with our wrappers in job config
       MapperWrapper.wrap(job);
       ReducerWrapper.wrap(job);
+      PartitionerWrapper.wrap(job);
+      RawComparatorWrapper.CombinerGroupComparatorWrapper.wrap(job);
+      RawComparatorWrapper.GroupComparatorWrapper.wrap(job);
+      RawComparatorWrapper.KeyComparatorWrapper.wrap(job);
 
       // packaging job jar which includes cdap classes with dependencies
       File jobJar = buildJobJar(job, tempDir);
@@ -815,6 +819,7 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
     classes.add(MapReduce.class);
     classes.add(MapperWrapper.class);
     classes.add(ReducerWrapper.class);
+    // TODO: add here?
 
     // We only need to trace the Input/OutputFormat class due to MAPREDUCE-5957 so that those classes are included
     // in the job.jar and be available in the MR system classpath before our job classloader (ApplicationClassLoader)

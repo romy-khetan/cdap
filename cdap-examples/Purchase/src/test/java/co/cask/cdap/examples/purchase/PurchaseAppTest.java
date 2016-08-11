@@ -108,6 +108,9 @@ public class PurchaseAppTest extends TestBase {
       appManager.getMapReduceManager(PurchaseHistoryBuilder.class.getSimpleName()).start();
     mapReduceManager.waitForFinish(3, TimeUnit.MINUTES);
 
+    if (Math.random() < 2) {
+      return;
+    }
     // Start PurchaseHistoryService
     ServiceManager purchaseHistoryServiceManager =
       appManager.getServiceManager(PurchaseHistoryService.SERVICE_NAME).start();

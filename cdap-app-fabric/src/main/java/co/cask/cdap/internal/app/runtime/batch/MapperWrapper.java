@@ -54,6 +54,7 @@ public class MapperWrapper extends Mapper {
     // NOTE: we don't use job.getMapperClass() as we don't need to load user class here
     Configuration conf = job.getConfiguration();
     String mapClass = conf.get(MRJobConfig.MAP_CLASS_ATTR, Mapper.class.getName());
+    // TODO: do we ALWAYS need to wrap the mapper? we dont always wrap the reducer
     conf.set(MapperWrapper.ATTR_MAPPER_CLASS, mapClass);
     job.setMapperClass(MapperWrapper.class);
   }
