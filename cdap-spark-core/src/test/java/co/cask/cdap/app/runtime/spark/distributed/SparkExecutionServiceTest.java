@@ -25,11 +25,27 @@ import co.cask.cdap.proto.id.ProgramRunId;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.Service;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.permission.FsAction;
+import org.apache.hadoop.hdfs.MiniDFSCluster;
+import org.apache.hadoop.security.Credentials;
+import org.apache.twill.filesystem.FileContextLocationFactory;
+import org.apache.twill.filesystem.Location;
+import org.apache.twill.filesystem.LocationFactory;
+import org.junit.AfterClass;
 import org.junit.Assert;
+import org.junit.BeforeClass;
+import org.junit.ClassRule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
+import java.io.DataInputStream;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
@@ -38,12 +54,33 @@ import java.util.concurrent.TimeUnit;
  */
 public class SparkExecutionServiceTest {
 
+  @ClassRule
+  public static final TemporaryFolder TEMP_FOLDER = new TemporaryFolder();
+
+  private static LocationFactory locationFactory;
+  private static MiniDFSCluster dfsCluster;
+
+  @BeforeClass
+  public static void init() throws IOException {
+    Configuration hConf = new Configuration();
+    hConf.set(MiniDFSCluster.HDFS_MINIDFS_BASEDIR, TEMP_FOLDER.newFolder().getAbsolutePath());
+    dfsCluster = new MiniDFSCluster.Builder(hConf).numDataNodes(1).build();
+    dfsCluster.waitClusterUp();
+    locationFactory = new FileContextLocationFactory(dfsCluster.getFileSystem().getConf());
+  }
+
+  @AfterClass
+  public static void finish() {
+    dfsCluster.shutdown();
+  }
+
   @Test
   public void testCompletion() throws Exception {
     ProgramRunId programRunId = new ProgramRunId("ns", "app", ProgramType.SPARK, "test", RunIds.generate().getId());
 
     // Start a service that no token is supported
-    SparkExecutionService service = new SparkExecutionService(InetAddress.getLoopbackAddress().getCanonicalHostName(),
+    SparkExecutionService service = new SparkExecutionService(locationFactory,
+                                                              InetAddress.getLoopbackAddress().getCanonicalHostName(),
                                                               programRunId, null);
     service.startAndWait();
     SparkExecutionClient client = new SparkExecutionClient(service.getBaseURI(), programRunId);
@@ -64,7 +101,8 @@ public class SparkExecutionServiceTest {
     ProgramRunId programRunId = new ProgramRunId("ns", "app", ProgramType.SPARK, "test", RunIds.generate().getId());
 
     // Start a service that no token is supported
-    SparkExecutionService service = new SparkExecutionService(InetAddress.getLoopbackAddress().getCanonicalHostName(),
+    SparkExecutionService service = new SparkExecutionService(locationFactory,
+                                                              InetAddress.getLoopbackAddress().getCanonicalHostName(),
                                                               programRunId, null);
     service.startAndWait();
     final SparkExecutionClient client = new SparkExecutionClient(service.getBaseURI(), programRunId);
@@ -100,7 +138,8 @@ public class SparkExecutionServiceTest {
     // Start a service with empty workflow token
     BasicWorkflowToken token = new BasicWorkflowToken(10);
     token.setCurrentNode("spark");
-    SparkExecutionService service = new SparkExecutionService(InetAddress.getLoopbackAddress().getCanonicalHostName(),
+    SparkExecutionService service = new SparkExecutionService(locationFactory,
+                                                              InetAddress.getLoopbackAddress().getCanonicalHostName(),
                                                               programRunId, token);
     service.startAndWait();
     SparkExecutionClient client = new SparkExecutionClient(service.getBaseURI(), programRunId);
@@ -129,5 +168,36 @@ public class SparkExecutionServiceTest {
       "completed", Value.of("true")
     );
     Assert.assertEquals(expected, values);
+  }
+
+  @Test
+  public void testWriteCredentials() throws Exception {
+    ProgramRunId programRunId = new ProgramRunId("ns", "app", ProgramType.SPARK, "test", RunIds.generate().getId());
+
+    // Start a service that doesn't support workflow token
+    SparkExecutionService service = new SparkExecutionService(locationFactory,
+                                                              InetAddress.getLoopbackAddress().getCanonicalHostName(),
+                                                              programRunId, null);
+    service.startAndWait();
+    SparkExecutionClient client = new SparkExecutionClient(service.getBaseURI(), programRunId);
+
+    Location targetLocation = locationFactory.create(UUID.randomUUID().toString()).append("credentials");
+    client.writeCredentials(targetLocation);
+
+    FileStatus status = dfsCluster.getFileSystem().getFileStatus(new Path(targetLocation.toURI()));
+    // Verify the file permission is 600
+    Assert.assertEquals(FsAction.READ_WRITE, status.getPermission().getUserAction());
+    Assert.assertEquals(FsAction.NONE, status.getPermission().getGroupAction());
+    Assert.assertEquals(FsAction.NONE, status.getPermission().getOtherAction());
+
+    // Should be able to deserialize back to credentials
+    Credentials credentials = new Credentials();
+    try (DataInputStream is = new DataInputStream(targetLocation.getInputStream())) {
+      credentials.readTokenStorageStream(is);
+    }
+
+    // Call complete to notify the service it has been stopped
+    client.completed(null);
+    service.stopAndWait();
   }
 }
