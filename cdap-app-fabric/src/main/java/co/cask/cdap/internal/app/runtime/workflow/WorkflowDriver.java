@@ -253,6 +253,7 @@ final class WorkflowDriver extends AbstractExecutionThreadService {
     } finally {
       lock.unlock();
     }
+    runtimeStore.setSuspend(workflowRunId.getParent().toId(), workflowRunId.getRun());
   }
 
   /**
@@ -268,6 +269,7 @@ final class WorkflowDriver extends AbstractExecutionThreadService {
     } finally {
       lock.unlock();
     }
+    runtimeStore.setResume(workflowRunId.getParent().toId(), workflowRunId.getRun());
   }
 
   @Override
