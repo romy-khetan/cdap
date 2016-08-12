@@ -29,11 +29,18 @@ import co.cask.cdap.security.spi.authentication.AuthenticationContext;
 import co.cask.cdap.security.spi.authorization.AuthorizationEnforcer;
 import co.cask.cdap.security.spi.authorization.UnauthorizedException;
 import co.cask.cdap.store.NamespaceStore;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.inject.Inject;
 
+import java.io.IOException;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ExecutionException;
 
 /**
  * Default implementation of {@link NamespaceQueryAdmin} to query namespace details.
@@ -43,6 +50,7 @@ public class DefaultNamespaceQueryAdmin implements NamespaceQueryAdmin {
   protected final NamespaceStore nsStore;
   protected final AuthorizationEnforcer authorizationEnforcer;
   protected final AuthenticationContext authenticationContext;
+  final LoadingCache<NamespaceId, NamespaceMeta> namespaceMetaCache;
 
   @Inject
   DefaultNamespaceQueryAdmin(NamespaceStore nsStore,
@@ -51,6 +59,12 @@ public class DefaultNamespaceQueryAdmin implements NamespaceQueryAdmin {
     this.nsStore = nsStore;
     this.authorizationEnforcer = authorizationEnforcer;
     this.authenticationContext = authenticationContext;
+    this.namespaceMetaCache = CacheBuilder.newBuilder().build(new CacheLoader<NamespaceId, NamespaceMeta>() {
+      @Override
+      public NamespaceMeta load(NamespaceId namespaceId) throws Exception {
+        return fetchNamespaceMeta(namespaceId);
+      }
+    });
   }
 
   /**
@@ -83,16 +97,18 @@ public class DefaultNamespaceQueryAdmin implements NamespaceQueryAdmin {
    */
   @Override
   public NamespaceMeta get(Id.Namespace namespaceId) throws Exception {
-    NamespaceMeta ns = nsStore.get(namespaceId);
-    if (ns == null) {
-      throw new NamespaceNotFoundException(namespaceId);
+    try {
+      return namespaceMetaCache.get(namespaceId.toEntityId());
+    } catch (ExecutionException e) {
+      if (e.getCause() instanceof NamespaceNotFoundException) {
+        throw new NamespaceNotFoundException(namespaceId);
+      } else if (e.getCause() instanceof IOException) {
+        throw new IOException(e.getCause());
+      } else if (e.getCause() instanceof UnauthorizedException) {
+        throw new UnauthorizedException(e.getMessage());
+      }
+      throw e;
     }
-    Principal principal = authenticationContext.getPrincipal();
-    Predicate<EntityId> filter = authorizationEnforcer.createFilter(principal);
-    if (!Principal.SYSTEM.equals(principal) && !filter.apply(namespaceId.toEntityId())) {
-      throw new UnauthorizedException(principal, namespaceId.toEntityId());
-    }
-    return ns;
   }
 
   /**
@@ -109,5 +125,23 @@ public class DefaultNamespaceQueryAdmin implements NamespaceQueryAdmin {
       return false;
     }
     return true;
+  }
+
+  @VisibleForTesting
+  Map<NamespaceId, NamespaceMeta> getCache() {
+    return namespaceMetaCache.asMap();
+  }
+
+  private NamespaceMeta fetchNamespaceMeta(NamespaceId namespaceId) throws Exception {
+    NamespaceMeta ns = nsStore.get(namespaceId.toId());
+    if (ns == null) {
+      throw new NamespaceNotFoundException(namespaceId.toId());
+    }
+    Principal principal = authenticationContext.getPrincipal();
+    Predicate<EntityId> filter = authorizationEnforcer.createFilter(principal);
+    if (!Principal.SYSTEM.equals(principal) && !filter.apply(namespaceId)) {
+      throw new UnauthorizedException(principal, namespaceId);
+    }
+    return ns;
   }
 }
