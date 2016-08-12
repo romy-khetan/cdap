@@ -17,6 +17,7 @@
  */
 package org.apache.twill.yarn;
 
+import co.cask.cdap.common.twill.LocalLocationFactory;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -87,6 +88,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.BufferedOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -134,6 +136,8 @@ final class YarnTwillPreparer implements TwillPreparer {
   private JvmOptions.DebugOptions debugOptions = JvmOptions.DebugOptions.NO_DEBUG;
   private ClassAcceptor classAcceptor;
   private LogEntry.Level logLevel;
+  // Hack for CDAP-7021
+  private LocationFactory jarCacheLocationFactory;
 
   YarnTwillPreparer(YarnConfiguration yarnConfig, TwillSpecification twillSpec,
                     YarnAppClient yarnAppClient, ZKClient zkClient,
@@ -203,7 +207,15 @@ final class YarnTwillPreparer implements TwillPreparer {
 
   @Override
   public TwillPreparer withApplicationArguments(Iterable<String> args) {
-    Iterables.addAll(arguments, args);
+    for (String arg : args) {
+      // Hack for CDAP-7021
+      if (arg.startsWith("cdap.jar.cache.dir=")) {
+        String jarCacheDir = arg.substring(arg.indexOf("=") + 1);
+        jarCacheLocationFactory = new LocalLocationFactory(new File(jarCacheDir));
+      } else {
+        arguments.add(arg);
+      }
+    }
     return this;
   }
 
@@ -385,26 +397,55 @@ final class YarnTwillPreparer implements TwillPreparer {
     return new DefaultLocalFile(name, location.toURI(), location.lastModified(), location.length(), archive, null);
   }
 
+  private void copyContents(Location from, Location to) throws IOException {
+    try (InputStream cachedContents = from.getInputStream()) {
+      try (OutputStream outputStream = to.getOutputStream()) {
+        ByteStreams.copy(cachedContents, outputStream);
+      }
+    }
+  }
+
   private void createAppMasterJar(ApplicationBundler bundler, Map<String, LocalFile> localFiles) throws IOException {
     try {
       LOG.debug("Create and copy {}", Constants.Files.APP_MASTER_JAR);
       Location location = createTempLocation(Constants.Files.APP_MASTER_JAR);
 
-      List<Class<?>> classes = Lists.newArrayList();
-      classes.add(ApplicationMasterMain.class);
+      Location cachedLocation = jarCacheLocationFactory == null ?
+        null : jarCacheLocationFactory.create(Constants.Files.APP_MASTER_JAR);
+      if (cachedLocation != null && cachedLocation.exists()) {
+        LOG.debug("Found cached app master jar for twill app {} at {}", twillSpec.getName(), cachedLocation);
+        // the jar is cached on local disk. Upload it to hdfs.
+        copyContents(cachedLocation, location);
+      } else {
+        List<Class<?>> classes = Lists.newArrayList();
+        classes.add(ApplicationMasterMain.class);
 
-      // Stuck in the yarnAppClient class to make bundler being able to pickup the right yarn-client version
-      classes.add(yarnAppClient.getClass());
+        // Stuck in the yarnAppClient class to make bundler being able to pickup the right yarn-client version
+        classes.add(yarnAppClient.getClass());
 
-      // Add the TwillRunnableEventHandler class
-      if (twillSpec.getEventHandler() != null) {
-        classes.add(getClassLoader().loadClass(twillSpec.getEventHandler().getClassName()));
+        // Add the TwillRunnableEventHandler class
+        if (twillSpec.getEventHandler() != null) {
+          classes.add(getClassLoader().loadClass(twillSpec.getEventHandler().getClassName()));
+        }
+
+        bundler.createBundle(location, classes);
+        LOG.debug("Done {}", Constants.Files.APP_MASTER_JAR);
+
+        if (cachedLocation != null) {
+          // to handle race conditions, only the first one to create the cached location will populate it
+          if (cachedLocation.createNew()) {
+            try {
+              copyContents(location, cachedLocation);
+            } catch (IOException e) {
+              LOG.error("Error caching app master jar for twill app {} at {}, it will need to be rebuilt next time.",
+                        twillSpec.getName(), cachedLocation, e);
+              cachedLocation.delete();
+            }
+          }
+        }
       }
-
-      bundler.createBundle(location, classes);
-      LOG.debug("Done {}", Constants.Files.APP_MASTER_JAR);
-
       localFiles.put(Constants.Files.APP_MASTER_JAR, createLocalFile(Constants.Files.APP_MASTER_JAR, location));
+
     } catch (ClassNotFoundException e) {
       throw Throwables.propagate(e);
     }
@@ -412,19 +453,39 @@ final class YarnTwillPreparer implements TwillPreparer {
 
   private void createContainerJar(ApplicationBundler bundler, Map<String, LocalFile> localFiles) throws IOException {
     try {
-      Set<Class<?>> classes = Sets.newIdentityHashSet();
-      classes.add(TwillContainerMain.class);
-      classes.addAll(dependencies);
-
-      ClassLoader classLoader = getClassLoader();
-      for (RuntimeSpecification spec : twillSpec.getRunnables().values()) {
-        classes.add(classLoader.loadClass(spec.getRunnableSpecification().getClassName()));
-      }
-
       LOG.debug("Create and copy {}", Constants.Files.CONTAINER_JAR);
       Location location = createTempLocation(Constants.Files.CONTAINER_JAR);
-      bundler.createBundle(location, classes, resources);
-      LOG.debug("Done {}", Constants.Files.CONTAINER_JAR);
+
+      Location cachedLocation = jarCacheLocationFactory == null ?
+        null : jarCacheLocationFactory.create(Constants.Files.CONTAINER_JAR);
+      if (cachedLocation != null && cachedLocation.exists()) {
+        LOG.debug("Found cached container jar for twill app {} at {}", twillSpec.getName(), cachedLocation);
+        // the jar is cached on local disk. Upload it to hdfs.
+        copyContents(cachedLocation, location);
+      } else {
+        Set<Class<?>> classes = Sets.newIdentityHashSet();
+        classes.add(TwillContainerMain.class);
+        classes.addAll(dependencies);
+
+        ClassLoader classLoader = getClassLoader();
+        for (RuntimeSpecification spec : twillSpec.getRunnables().values()) {
+          classes.add(classLoader.loadClass(spec.getRunnableSpecification().getClassName()));
+        }
+
+        bundler.createBundle(location, classes, resources);
+        LOG.debug("Done {}", Constants.Files.CONTAINER_JAR);
+
+        if (cachedLocation != null) {
+          // to handle race conditions, only the first one to create the cached location will populate it
+          try {
+            copyContents(location, cachedLocation);
+          } catch (IOException e) {
+            LOG.error("Error caching container jar for twill app {} at {}, it will need to be rebuilt next time.",
+                      twillSpec.getName(), cachedLocation, e);
+            cachedLocation.delete();
+          }
+        }
+      }
 
       localFiles.put(Constants.Files.CONTAINER_JAR, createLocalFile(Constants.Files.CONTAINER_JAR, location));
 

@@ -96,6 +96,9 @@ public abstract class AbstractDistributedProgramRunner implements ProgramRunner 
   protected final CConfiguration cConf;
   protected final EventHandler eventHandler;
   private final TokenSecureStoreUpdater secureStoreUpdater;
+  private final File tmpDir;
+  // Hack for CDAP-7021. Cache twill appmaster and container jars in this directory
+  private final File jarCacheDir;
 
   /**
    * An interface for launching TwillApplication. Used by sub-classes only.
@@ -149,6 +152,8 @@ public abstract class AbstractDistributedProgramRunner implements ProgramRunner 
     this.cConf = cConf;
     this.eventHandler = createEventHandler(cConf);
     this.secureStoreUpdater = tokenSecureStoreUpdater;
+    this.tmpDir = new File(cConf.get(Constants.CFG_LOCAL_DATA_DIR), cConf.get(Constants.AppFabric.TEMP_DIR));
+    this.jarCacheDir = new File(tmpDir, "twillcache");
   }
 
   protected EventHandler createEventHandler(CConfiguration cConf) {
@@ -158,8 +163,7 @@ public abstract class AbstractDistributedProgramRunner implements ProgramRunner 
   @Override
   public final ProgramController run(final Program program, final ProgramOptions oldOptions) {
     final String schedulerQueueName = oldOptions.getArguments().getOption(Constants.AppFabric.APP_SCHEDULER_QUEUE);
-    final File tempDir = DirUtils.createTempDir(new File(cConf.get(Constants.CFG_LOCAL_DATA_DIR),
-                                                         cConf.get(Constants.AppFabric.TEMP_DIR)).getAbsoluteFile());
+    final File tempDir = DirUtils.createTempDir(tmpDir.getAbsoluteFile());
     try {
       if (schedulerQueueName != null && !schedulerQueueName.isEmpty()) {
         hConf.set(JobContext.QUEUE_NAME, schedulerQueueName);
@@ -229,6 +233,13 @@ public abstract class AbstractDistributedProgramRunner implements ProgramRunner 
             // TokenSecureStoreUpdater.update() ignores parameters
             twillPreparer.addSecureStore(secureStoreUpdater.update(null, null));
           }
+
+          // Hack for CDAP-7021. Interacts with the patched YarnTwillPreparer class.
+          // we'll build jars for each restart of cdap master. Delete jars from any early cdap-master run.
+          File programTypeDir = new File(jarCacheDir, program.getType().name());
+          DirUtils.mkdirs(programTypeDir);
+          twillPreparer.withApplicationArguments("cdap.jar.cache.dir=" + programTypeDir.getAbsolutePath());
+
           TwillController twillController = twillPreparer
             .withDependencies(HBaseTableUtilFactory.getHBaseTableUtilClass())
             .withClassPaths(Iterables.concat(extraClassPaths, Splitter.on(',').trimResults()
