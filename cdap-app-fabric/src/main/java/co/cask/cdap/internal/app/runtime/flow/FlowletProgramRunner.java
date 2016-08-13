@@ -69,6 +69,7 @@ import co.cask.cdap.data2.transaction.stream.StreamConsumer;
 import co.cask.cdap.internal.app.queue.QueueReaderFactory;
 import co.cask.cdap.internal.app.queue.RoundRobinQueueReader;
 import co.cask.cdap.internal.app.queue.SimpleQueueSpecificationGenerator;
+import co.cask.cdap.internal.app.queue.StreamQueueReader;
 import co.cask.cdap.internal.app.runtime.DataFabricFacade;
 import co.cask.cdap.internal.app.runtime.DataFabricFacadeFactory;
 import co.cask.cdap.internal.app.runtime.DataSetFieldSetter;
@@ -82,6 +83,9 @@ import co.cask.cdap.internal.lang.Reflections;
 import co.cask.cdap.internal.specification.FlowletMethod;
 import co.cask.cdap.proto.Id;
 import co.cask.cdap.proto.ProgramType;
+import co.cask.cdap.proto.id.StreamId;
+import co.cask.cdap.proto.security.Action;
+import co.cask.cdap.proto.security.Principal;
 import co.cask.cdap.security.spi.authentication.AuthenticationContext;
 import co.cask.cdap.security.spi.authorization.AuthorizationEnforcer;
 import co.cask.common.io.ByteBufferInputStream;
@@ -272,6 +276,23 @@ public final class FlowletProgramRunner implements ProgramRunner {
                                    Lists.<ProcessSpecification<?>>newLinkedList());
       List<ConsumerSupplier<?>> consumerSuppliers = queueConsumerSupplierBuilder.build();
 
+      // make sure that the user has READ permission on all the streams
+      Principal principal = authenticationContext.getPrincipal();
+      for (ProcessSpecification processSpecification : processSpecs) {
+        if (processSpecification.getQueueReader() instanceof StreamQueueReader) {
+          checkStreamReadAuthorization((StreamQueueReader) processSpecification.getQueueReader(), principal);
+        } else if (processSpecification.getQueueReader() instanceof RoundRobinQueueReader) {
+          RoundRobinQueueReader rrQueueReader = (RoundRobinQueueReader) processSpecification.getQueueReader();
+          Iterator<QueueReader> readers = rrQueueReader.getReaders().iterator();
+          while (readers.hasNext()) {
+            QueueReader queueReader = readers.next();
+            if (queueReader instanceof StreamQueueReader) {
+              checkStreamReadAuthorization((StreamQueueReader) queueReader, principal);
+            }
+          }
+        }
+      }
+
       // Create the flowlet driver
       AtomicReference<FlowletProgramController> controllerRef = new AtomicReference<>();
       Service serviceHook = createServiceHook(flowletName, consumerSuppliers, controllerRef);
@@ -299,6 +320,11 @@ public final class FlowletProgramRunner implements ProgramRunner {
       }
       throw Throwables.propagate(e);
     }
+  }
+
+  private void checkStreamReadAuthorization(StreamQueueReader reader, Principal principal) throws Exception {
+    StreamId streamId = reader.getStreamId();
+    authorizationEnforcer.enforce(streamId, principal, Action.READ);
   }
 
   /**

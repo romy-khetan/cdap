@@ -57,6 +57,10 @@ public final class StreamQueueReader<T> implements QueueReader<T> {
     this.principal = authenticationContext.getPrincipal();
   }
 
+  public StreamId getStreamId() {
+    return streamId;
+  }
+
   @Override
   public InputDatum<T> dequeue(long timeout, TimeUnit timeoutUnit) throws IOException, InterruptedException {
     StreamConsumer consumer = consumerSupplier.get();

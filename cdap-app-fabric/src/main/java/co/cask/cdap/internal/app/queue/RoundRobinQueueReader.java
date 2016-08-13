@@ -36,10 +36,16 @@ import java.util.concurrent.TimeUnit;
 public final class RoundRobinQueueReader<T> extends TimeTrackingQueueReader<T> {
 
   private final InputDatum<T> nullInput = new NullInputDatum<>();
+  private final Iterable<QueueReader<T>> readerIterable;
   private final Iterator<QueueReader<T>> readers;
 
   public RoundRobinQueueReader(Iterable<QueueReader<T>> readers) {
+    this.readerIterable = readers;
     this.readers = Iterables.cycle(readers).iterator();
+  }
+
+  public Iterable<QueueReader<T>> getReaders() {
+    return readerIterable;
   }
 
   public InputDatum<T> tryDequeue(long timeout, TimeUnit timeoutUnit) throws IOException, InterruptedException {
