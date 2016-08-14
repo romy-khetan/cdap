@@ -17,6 +17,7 @@
  */
 package org.apache.twill.yarn;
 
+import co.cask.cdap.common.io.Locations;
 import co.cask.cdap.common.twill.LocalLocationFactory;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
@@ -397,14 +398,6 @@ final class YarnTwillPreparer implements TwillPreparer {
     return new DefaultLocalFile(name, location.toURI(), location.lastModified(), location.length(), archive, null);
   }
 
-  private void copyContents(Location from, Location to) throws IOException {
-    try (InputStream cachedContents = from.getInputStream()) {
-      try (OutputStream outputStream = to.getOutputStream()) {
-        ByteStreams.copy(cachedContents, outputStream);
-      }
-    }
-  }
-
   private void createAppMasterJar(ApplicationBundler bundler, Map<String, LocalFile> localFiles) throws IOException {
     try {
       LOG.debug("Create and copy {}", Constants.Files.APP_MASTER_JAR);
@@ -412,10 +405,13 @@ final class YarnTwillPreparer implements TwillPreparer {
 
       Location cachedLocation = jarCacheLocationFactory == null ?
         null : jarCacheLocationFactory.create(Constants.Files.APP_MASTER_JAR);
-      if (cachedLocation != null && cachedLocation.exists()) {
+      Location cacheDoneLocation = cachedLocation == null ?
+        null : jarCacheLocationFactory.create(Constants.Files.APP_MASTER_JAR + ".done");
+
+      if (cachedLocation != null && cacheDoneLocation.exists()) {
         LOG.debug("Found cached app master jar for twill app {} at {}", twillSpec.getName(), cachedLocation);
         // the jar is cached on local disk. Upload it to hdfs.
-        copyContents(cachedLocation, location);
+        ByteStreams.copy(Locations.newInputSupplier(cachedLocation), Locations.newOutputSupplier(location));
       } else {
         List<Class<?>> classes = Lists.newArrayList();
         classes.add(ApplicationMasterMain.class);
@@ -432,16 +428,7 @@ final class YarnTwillPreparer implements TwillPreparer {
         LOG.debug("Done {}", Constants.Files.APP_MASTER_JAR);
 
         if (cachedLocation != null) {
-          // to handle race conditions, only the first one to create the cached location will populate it
-          if (cachedLocation.createNew()) {
-            try {
-              copyContents(location, cachedLocation);
-            } catch (IOException e) {
-              LOG.error("Error caching app master jar for twill app {} at {}, it will need to be rebuilt next time.",
-                        twillSpec.getName(), cachedLocation, e);
-              cachedLocation.delete();
-            }
-          }
+          copyToLocalCache(location, cachedLocation, cacheDoneLocation);
         }
       }
       localFiles.put(Constants.Files.APP_MASTER_JAR, createLocalFile(Constants.Files.APP_MASTER_JAR, location));
@@ -458,10 +445,12 @@ final class YarnTwillPreparer implements TwillPreparer {
 
       Location cachedLocation = jarCacheLocationFactory == null ?
         null : jarCacheLocationFactory.create(Constants.Files.CONTAINER_JAR);
-      if (cachedLocation != null && cachedLocation.exists()) {
+      Location cacheDoneLocation = cachedLocation == null ?
+        null : jarCacheLocationFactory.create(Constants.Files.CONTAINER_JAR + ".done");
+      if (cachedLocation != null && cacheDoneLocation.exists()) {
         LOG.debug("Found cached container jar for twill app {} at {}", twillSpec.getName(), cachedLocation);
         // the jar is cached on local disk. Upload it to hdfs.
-        copyContents(cachedLocation, location);
+        ByteStreams.copy(Locations.newInputSupplier(cachedLocation), Locations.newOutputSupplier(location));
       } else {
         Set<Class<?>> classes = Sets.newIdentityHashSet();
         classes.add(TwillContainerMain.class);
@@ -476,14 +465,7 @@ final class YarnTwillPreparer implements TwillPreparer {
         LOG.debug("Done {}", Constants.Files.CONTAINER_JAR);
 
         if (cachedLocation != null) {
-          // to handle race conditions, only the first one to create the cached location will populate it
-          try {
-            copyContents(location, cachedLocation);
-          } catch (IOException e) {
-            LOG.error("Error caching container jar for twill app {} at {}, it will need to be rebuilt next time.",
-                      twillSpec.getName(), cachedLocation, e);
-            cachedLocation.delete();
-          }
+          copyToLocalCache(location, cachedLocation, cacheDoneLocation);
         }
       }
 
@@ -703,5 +685,39 @@ final class YarnTwillPreparer implements TwillPreparer {
   private ClassLoader getClassLoader() {
     ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
     return classLoader == null ? getClass().getClassLoader() : classLoader;
+  }
+
+  // part of hack for CDAP-7021
+  private void copyToLocalCache(Location jarLocation, Location cacheLocation,
+                                Location doneLocation) throws IOException {
+
+    // to handle race conditions, only the first one to create the cached location will populate it
+    if (cacheLocation.createNew()) {
+      try {
+        ByteStreams.copy(Locations.newInputSupplier(jarLocation), Locations.newOutputSupplier(cacheLocation));
+      } catch (IOException e) {
+        LOG.error("Error caching container jar for twill app {} at {}, it will need to be rebuilt next time.",
+                  twillSpec.getName(), cacheLocation, e);
+        cacheLocation.delete();
+      }
+      try {
+        doneLocation.createNew();
+      } catch (IOException e) {
+        LOG.error("Error caching container jar for twill app {} at {}, it will need to be rebuilt next time.",
+                  twillSpec.getName(), cacheLocation, e);
+        try {
+          doneLocation.delete();
+        } catch (IOException e1) {
+          LOG.error("Error cleaning up {} after cache failure. The file will need to be manually deleted.",
+                    doneLocation, e1);
+        }
+        try {
+          cacheLocation.delete();
+        } catch (IOException e2) {
+          LOG.error("Error cleaning up {} after cache failure. The file will need to be manually deleted.",
+                    cacheLocation, e2);
+        }
+      }
+    }
   }
 }
