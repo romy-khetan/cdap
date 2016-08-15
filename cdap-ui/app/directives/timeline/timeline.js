@@ -30,6 +30,7 @@ function link (scope, element) {
       endTime,
       pinOffset,
       handleWidth,
+      handlePosition,
       firstRun = true;
 
   //Components
@@ -145,6 +146,7 @@ function link (scope, element) {
             if(val > maxRange){
               val = maxRange;
             }
+            handlePosition = val;
             sliderHandle.attr('x', val);
             sliderBar.attr('d', 'M0,0V0H' + val + 'V0');
             updateScrollWithNewStart(val, pinScrollXPosition);
@@ -159,6 +161,7 @@ function link (scope, element) {
             if(val > maxRange){
               val = maxRange;
             }
+            handlePosition = val;
             updateSlider(val);
             updateScrollWithNewStart(val, pinScrollXPosition);
           }
@@ -262,11 +265,16 @@ function link (scope, element) {
   }
 
   scope.updatePin = function () {
-    let xPositionVal = Math.floor(xScale(scope.pinScrollingPosition));
+    let xPositionVal = xScale(scope.pinScrollingPosition);
     if(xPositionVal < 0 || xPositionVal > maxRange){
       return;
     }
     if(typeof pinHandle !== 'undefined'){
+
+     if(xPositionVal < handlePosition){
+      xPositionVal = handlePosition;
+     }
+
      pinHandle.attr('x', xPositionVal - pinOffset + 1);
      scrollNeedle.attr('x1', xPositionVal + 8)
       .attr('x2', xPositionVal + 8);
