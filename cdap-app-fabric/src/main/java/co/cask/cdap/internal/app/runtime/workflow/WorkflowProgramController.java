@@ -82,7 +82,11 @@ final class WorkflowProgramController extends AbstractProgramController {
       @Override
       public void terminated(Service.State from) {
         LOG.info("Workflow service terminated from {}. Un-registering service {}.", from, serviceName);
-        cancelAnnounce.cancel();
+        if (cancelAnnounce != null) {
+          // if there is an exception before workflow enters into the RUNNING state, cancelAnnounce will be null
+          // since it is initialized in the running method
+          cancelAnnounce.cancel();
+        }
         LOG.info("Service {} unregistered.", serviceName);
         if (getState() != State.STOPPING) {
           // service completed itself.
