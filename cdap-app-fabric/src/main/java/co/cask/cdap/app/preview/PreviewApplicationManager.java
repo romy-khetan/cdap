@@ -27,12 +27,14 @@ import co.cask.cdap.internal.app.deploy.pipeline.ApplicationRegistrationStage;
 import co.cask.cdap.internal.app.deploy.pipeline.ApplicationVerificationStage;
 import co.cask.cdap.internal.app.deploy.pipeline.CreateDatasetInstancesStage;
 import co.cask.cdap.internal.app.deploy.pipeline.DeployDatasetModulesStage;
+import co.cask.cdap.internal.app.deploy.pipeline.DeploymentCleanupStage;
 import co.cask.cdap.internal.app.deploy.pipeline.LocalArtifactLoaderStage;
 import co.cask.cdap.internal.app.deploy.pipeline.ProgramGenerationStage;
 import co.cask.cdap.internal.app.runtime.artifact.ArtifactRepository;
 import co.cask.cdap.pipeline.Pipeline;
 import co.cask.cdap.pipeline.PipelineFactory;
 import co.cask.cdap.security.authorization.AuthorizerInstantiator;
+import co.cask.cdap.security.spi.authorization.Authorizer;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.inject.Inject;
 import com.google.inject.name.Named;
@@ -52,7 +54,7 @@ public class PreviewApplicationManager<I, O> implements Manager<I, O> {
   private final DatasetFramework inMemoryDatasetFramework;
   private final UsageRegistry usageRegistry;
   private final ArtifactRepository artifactRepository;
-  private final AuthorizerInstantiator authorizerInstantiator;
+  private final Authorizer authorizer;
   private final Impersonator impersonator;
 
   @Inject
@@ -70,7 +72,7 @@ public class PreviewApplicationManager<I, O> implements Manager<I, O> {
     this.inMemoryDatasetFramework = inMemoryDatasetFramework;
     this.usageRegistry = usageRegistry;
     this.artifactRepository = artifactRepository;
-    this.authorizerInstantiator = authorizerInstantiator;
+    this.authorizer = authorizerInstantiator.get();
     this.impersonator = impersonator;
   }
 
@@ -82,9 +84,9 @@ public class PreviewApplicationManager<I, O> implements Manager<I, O> {
     pipeline.addLast(new DeployDatasetModulesStage(cConf, datasetFramework,
                                                    inMemoryDatasetFramework));
     pipeline.addLast(new CreateDatasetInstancesStage(cConf, datasetFramework));
-    pipeline.addLast(new ProgramGenerationStage(cConf, namespacedLocationFactory,
-                                                authorizerInstantiator.get()));
+    pipeline.addLast(new ProgramGenerationStage(cConf, namespacedLocationFactory, authorizer));
     pipeline.addLast(new ApplicationRegistrationStage(store, usageRegistry));
+    pipeline.setFinally(new DeploymentCleanupStage());
     return pipeline.execute(input);
   }
 }
