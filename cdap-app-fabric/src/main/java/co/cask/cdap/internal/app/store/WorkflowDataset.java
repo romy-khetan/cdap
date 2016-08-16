@@ -46,8 +46,6 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
 
-import static org.apache.hadoop.yarn.webapp.hamlet.HamletSpec.Scope.row;
-
 /**
  * Dataset for Completed Workflows and their associated programs
  */
