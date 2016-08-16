@@ -57,7 +57,13 @@ public class SparkCredentialsUpdaterTest {
     SparkCredentialsUpdater updater = new SparkCredentialsUpdater(createCredentialsSupplier(),
                                                                   credentialsDir, "credentials",
                                                                   TimeUnit.DAYS.toMillis(1),
-                                                                  TimeUnit.DAYS.toMillis(1), Integer.MAX_VALUE);
+                                                                  TimeUnit.DAYS.toMillis(1), Integer.MAX_VALUE) {
+      @Override
+      long getNextUpdateDelay(Credentials credentials) throws IOException {
+        return TimeUnit.DAYS.toMillis(1);
+      }
+    };
+
     // Before the updater starts, the directory is empty
     Assert.assertTrue(credentialsDir.list().isEmpty());
 
@@ -102,7 +108,13 @@ public class SparkCredentialsUpdaterTest {
     SparkCredentialsUpdater updater = new SparkCredentialsUpdater(createCredentialsSupplier(),
                                                                   credentialsDir, "credentials",
                                                                   TimeUnit.DAYS.toMillis(1),
-                                                                  TimeUnit.SECONDS.toMillis(3), 3);
+                                                                  TimeUnit.SECONDS.toMillis(3), 3) {
+      @Override
+      long getNextUpdateDelay(Credentials credentials) throws IOException {
+        return TimeUnit.DAYS.toMillis(1);
+      }
+    };
+
     updater.startAndWait();
 
     // Expect this loop to finish in 3 seconds because we don't want sleep for too long for testing cleanup

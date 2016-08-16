@@ -19,6 +19,7 @@ package co.cask.cdap.app.runtime.spark;
 import co.cask.cdap.common.io.LocationStatus;
 import co.cask.cdap.common.io.Locations;
 import co.cask.cdap.common.io.Processor;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.util.concurrent.AbstractIdleService;
@@ -130,7 +131,7 @@ public class SparkCredentialsUpdater extends AbstractIdleService implements Runn
 
       // Schedule the next update.
       // Use the same logic as the Spark executor to calculate the update time.
-      nextUpdateTime = getNextUpdateTime(credentials);
+      nextUpdateTime = getNextUpdateDelay(credentials);
 
       LOG.debug("Next credentials refresh at {}ms later", nextUpdateTime);
       scheduler.schedule(this, nextUpdateTime, TimeUnit.MILLISECONDS);
@@ -144,7 +145,8 @@ public class SparkCredentialsUpdater extends AbstractIdleService implements Runn
     }
   }
 
-  private long getNextUpdateTime(Credentials credentials) throws IOException {
+  @VisibleForTesting
+  long getNextUpdateDelay(Credentials credentials) throws IOException {
     long now = System.currentTimeMillis();
 
     // This is almost the same logic as in SparkHadoopUtil.getTimeFromNowToRenewal
