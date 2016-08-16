@@ -17,11 +17,11 @@
 package co.cask.cdap.app.runtime.spark;
 
 import co.cask.cdap.api.common.Bytes;
-import co.cask.tephra.Transaction;
-import co.cask.tephra.TransactionCodec;
-import co.cask.tephra.TransactionFailureException;
 import com.google.common.base.Stopwatch;
 import com.google.common.io.ByteStreams;
+import org.apache.tephra.Transaction;
+import org.apache.tephra.TransactionCodec;
+import org.apache.tephra.TransactionFailureException;
 
 import java.io.IOException;
 import java.net.HttpURLConnection;
@@ -67,7 +67,7 @@ final class SparkTransactionClient {
    */
   Transaction getTransaction(int stageId, long timeout,
                              TimeUnit timeUnit) throws TimeoutException, InterruptedException,
-                                                       TransactionFailureException {
+    TransactionFailureException {
     long timeoutMillis = Math.max(0L, timeUnit.toMillis(timeout) - txPollIntervalMillis);
     Stopwatch stopwatch = new Stopwatch().start();
     Transaction transaction = getTransaction(stageId);
