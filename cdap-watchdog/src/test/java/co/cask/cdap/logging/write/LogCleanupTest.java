@@ -23,10 +23,12 @@ import co.cask.cdap.common.guice.LocationRuntimeModule;
 import co.cask.cdap.common.io.Locations;
 import co.cask.cdap.common.io.RootLocationFactory;
 import co.cask.cdap.common.logging.LoggingContext;
+import co.cask.cdap.common.namespace.NamespaceAdmin;
 import co.cask.cdap.common.namespace.NamespaceQueryAdmin;
 import co.cask.cdap.common.namespace.NamespacedLocationFactory;
 import co.cask.cdap.common.namespace.NamespacedLocationFactoryTestClient;
 import co.cask.cdap.common.namespace.SimpleNamespaceQueryAdmin;
+import co.cask.cdap.common.namespace.guice.NamespaceClientRuntimeModule;
 import co.cask.cdap.data.runtime.DataSetsModules;
 import co.cask.cdap.data.runtime.SystemDatasetRuntimeModule;
 import co.cask.cdap.data.runtime.TransactionExecutorModule;
@@ -125,11 +127,11 @@ public class LogCleanupTest {
       new AuthorizationTestModule(),
       new AuthorizationEnforcementModule().getInMemoryModules(),
       new AuthenticationContextModules().getNoOpModule(),
+      new NamespaceClientRuntimeModule().getInMemoryModules(),
       new AbstractModule() {
         @Override
         protected void configure() {
           bind(UGIProvider.class).to(UnsupportedUGIProvider.class);
-          bind(NamespaceQueryAdmin.class).to(SimpleNamespaceQueryAdmin.class);
         }
       }
     );
@@ -138,7 +140,7 @@ public class LogCleanupTest {
     txManager.startAndWait();
     rootLocationFactory = injector.getInstance(RootLocationFactory.class);
     impersonator = injector.getInstance(Impersonator.class);
-    namespaceQueryAdmin = injector.getInstance(SimpleNamespaceQueryAdmin.class);
+    namespaceQueryAdmin = injector.getInstance(NamespaceAdmin.class);
   }
 
   @AfterClass

@@ -21,7 +21,6 @@ import co.cask.cdap.proto.NamespaceConfig;
 import co.cask.cdap.proto.NamespaceMeta;
 import com.google.common.collect.ImmutableMap;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -43,16 +42,13 @@ public class SimpleNamespaceQueryAdmin implements NamespaceQueryAdmin {
 
   @Override
   public List<NamespaceMeta> list() throws Exception {
-    return new ArrayList<NamespaceMeta>(customNSMap.values());
+    throw new UnsupportedOperationException("Listing of namespaces is not supported.");
   }
 
   @Override
   public NamespaceMeta get(Id.Namespace namespaceId) throws Exception {
-    if (customNSMap.containsKey(namespaceId.getId())) {
-      return customNSMap.get(namespaceId.getId());
-    }
-    customNSMap.put(namespaceId.getId(), new NamespaceMeta.Builder().setName(namespaceId.getId()).build());
-    return customNSMap.get(namespaceId.getId());
+    return customNSMap.containsKey(namespaceId.getId()) ? customNSMap.get(namespaceId.getId()) :
+      new NamespaceMeta.Builder().setName(namespaceId.getId()).build();
   }
 
   @Override

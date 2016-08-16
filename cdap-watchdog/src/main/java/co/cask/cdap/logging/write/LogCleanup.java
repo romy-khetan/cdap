@@ -16,7 +16,9 @@
 
 package co.cask.cdap.logging.write;
 
+import co.cask.cdap.common.io.LocationStatus;
 import co.cask.cdap.common.io.Locations;
+import co.cask.cdap.common.io.Processor;
 import co.cask.cdap.common.io.RootLocationFactory;
 import co.cask.cdap.common.namespace.NamespaceQueryAdmin;
 import co.cask.cdap.common.namespace.NamespacedLocationFactory;
@@ -27,6 +29,7 @@ import co.cask.cdap.proto.id.NamespaceId;
 import com.google.common.base.Throwables;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.SetMultimap;
+import com.google.common.collect.Sets;
 import org.apache.twill.filesystem.Location;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +37,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.net.URI;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -105,7 +109,7 @@ public final class LogCleanup implements Runnable {
                                         });
 
       // list all the namespaces, iterate over them and then get dir
-      cleanLogDir();
+      cleanLogDir(tillTime);
 
       // Delete any empty parent dirs
       for (final String namespacedLogBaseDir : parentDirs.keySet()) {
@@ -127,14 +131,51 @@ public final class LogCleanup implements Runnable {
     }
   }
 
-  private void cleanLogDir() throws Exception {
+  private void cleanLogDir(final long tillTime) throws Exception {
     LOG.info("Calling cleanLogDir()");
+    Processor<LocationStatus, Set<Location>> processor = new Processor<LocationStatus, Set<Location>>() {
+      private Set<Location> expiredLocations = new HashSet();
+
+      @Override
+      public boolean process(LocationStatus input) {
+        Location location = rootLocationFactory.create(input.getUri());
+        try {
+          if (!input.isDir() && location.lastModified() < tillTime) {
+            // collection of expired files
+            expiredLocations.add(location);
+          }
+        } catch (IOException e) {
+          LOG.error("While log cleanup got error in getting last modified location for log file {}",
+                    location.toURI().toString());
+        }
+        return true;
+      }
+
+      @Override
+      public Set<Location> getResult() {
+        return expiredLocations;
+      }
+    };
+
     List<NamespaceMeta> namespaceMetaList = namespaceQueryAdmin.list();
     for (NamespaceMeta namespaceMeta : namespaceMetaList) {
+      NamespaceId namespaceId = namespaceMeta.getNamespaceId();
       String namespacedBaseDir = LoggingContextHelper.getNamespacedBaseDir(namespacedLocationFactory, logBaseDir,
-                                                                           namespaceMeta.getNamespaceId());
+                                                                           namespaceId);
       LOG.info("NamespacedBaseDir: {}", namespacedBaseDir);
+      Location location = rootLocationFactory.create(namespacedBaseDir);
 
+      Locations.processLocations(location, false, processor);
+
+      Set<Location> result = processor.getResult();
+      Set<Location> locations = fileMetaDataManager.scanFiles(tillTime, namespaceId.getNamespace());
+      
+      for (Location loc : Sets.difference(result, locations)) {
+       if (!loc.delete()) {
+         LOG.error("While log cleanup got error in getting last modified location for log file {}",
+                   loc.toURI().toString());
+       }
+      }
     }
   }
 

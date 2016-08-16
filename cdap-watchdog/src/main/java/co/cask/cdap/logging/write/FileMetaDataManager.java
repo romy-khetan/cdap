@@ -42,8 +42,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URI;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
@@ -147,6 +149,58 @@ public final class FileMetaDataManager {
           }
         });
         return files;
+      }
+    });
+  }
+
+  /**
+   *
+   * @param tillTime
+   * @param namespace
+   * @return
+   */
+  public Set<Location> scanFiles(final long tillTime, final String namespace) {
+    return execute(new TransactionExecutor.Function<Table, Set<Location>>() {
+      @Override
+      public Set<Location> apply(Table table) throws Exception {
+        Set<Location> locations = new HashSet<Location>();
+        byte[] prefix = Bytes.toBytes(namespace);
+        byte[] prefixEnd = Bytes.toBytes(namespace + "a");
+        Scanner scanner = table.scan(prefix, prefixEnd);
+        Row row;
+        while ((row = scanner.next()) != null) {
+          byte[] rowKey = row.getRow();
+          final NamespaceId namespaceId = getNamespaceId(rowKey);
+          String namespacedLogDir = impersonator.doAs(namespaceId, new Callable<String>() {
+            @Override
+            public String call() throws Exception {
+              return LoggingContextHelper.getNamespacedBaseDir(namespacedLocationFactory, logBaseDir,
+                                                               namespaceId);
+            }
+          });
+          for (final Map.Entry<byte[], byte[]> entry : row.getColumns().entrySet()) {
+            try {
+              byte[] colName = entry.getKey();
+              URI file = new URI(Bytes.toString(entry.getValue()));
+              if (LOG.isDebugEnabled()) {
+                LOG.debug("Got file {} with start time {}", file, Bytes.toLong(colName));
+              }
+
+              Location fileLocation = impersonator.doAs(namespaceId, new Callable<Location>() {
+                @Override
+                public Location call() throws Exception {
+                  return rootLocationFactory.create(new URI(Bytes.toString(entry.getValue())));
+                }
+              });
+              if (fileLocation.lastModified() < tillTime) {
+                locations.add(fileLocation);
+              }
+            } catch (Exception e) {
+              LOG.error("Got exception deleting file {}", Bytes.toString(entry.getValue()), e);
+            }
+          }
+        }
+        return locations;
       }
     });
   }
