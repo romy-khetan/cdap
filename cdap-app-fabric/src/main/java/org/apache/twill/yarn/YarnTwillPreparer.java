@@ -139,6 +139,9 @@ final class YarnTwillPreparer implements TwillPreparer {
   private LogEntry.Level logLevel;
   // Hack for CDAP-7021
   private LocationFactory jarCacheLocationFactory;
+  // Hacks for TWILL-187
+  private Integer maxStartSeconds;
+  private Integer maxStopSeconds;
 
   YarnTwillPreparer(YarnConfiguration yarnConfig, TwillSpecification twillSpec,
                     YarnAppClient yarnAppClient, ZKClient zkClient,
@@ -209,10 +212,35 @@ final class YarnTwillPreparer implements TwillPreparer {
   @Override
   public TwillPreparer withApplicationArguments(Iterable<String> args) {
     for (String arg : args) {
-      // Hack for CDAP-7021
+      // Hack for CDAP-7021 and TWILL-187
       if (arg.startsWith("cdap.jar.cache.dir=")) {
         String jarCacheDir = arg.substring(arg.indexOf("=") + 1);
+        LOG.debug("using local directory {} to cache jars.", jarCacheDir);
         jarCacheLocationFactory = new LocalLocationFactory(new File(jarCacheDir));
+      } else if (arg.startsWith("app.max.start.seconds=")) {
+        String secondsStr = arg.substring(arg.indexOf("=") + 1);
+        try {
+          maxStartSeconds = Integer.parseInt(secondsStr);
+          if (maxStartSeconds < 0) {
+            LOG.warn("Invalid value for app.max.start.seconds={}. The default value will be used.", secondsStr);
+            maxStartSeconds = null;
+          }
+          LOG.debug("using max start seconds {}.", maxStartSeconds);
+        } catch (NumberFormatException e) {
+          LOG.warn("Invalid value for app.max.start.seconds={}. The default value will be used.", secondsStr);
+        }
+      } else if (arg.startsWith("app.max.stop.seconds=")) {
+        String secondsStr = arg.substring(arg.indexOf("=") + 1);
+        try {
+          maxStopSeconds = Integer.parseInt(secondsStr);
+          if (maxStopSeconds < 0) {
+            LOG.warn("Invalid value for app.max.stop.seconds={}. The default value will be used.", secondsStr);
+            maxStopSeconds = null;
+          }
+          LOG.debug("using max stop seconds {}.", maxStartSeconds);
+        } catch (NumberFormatException e) {
+          LOG.warn("Invalid value for app.max.stop.seconds={}. The default value will be used.", secondsStr);
+        }
       } else {
         arguments.add(arg);
       }
@@ -362,6 +390,13 @@ final class YarnTwillPreparer implements TwillPreparer {
         };
 
       YarnTwillController controller = controllerFactory.create(runId, logHandlers, submitTask);
+      // Hacks for TWILL-187
+      if (maxStartSeconds != null) {
+        controller.setMaxStartSeconds(maxStartSeconds);
+      }
+      if (maxStopSeconds != null) {
+        controller.setMaxStopSeconds(maxStopSeconds);
+      }
       controller.start();
       return controller;
     } catch (Exception e) {

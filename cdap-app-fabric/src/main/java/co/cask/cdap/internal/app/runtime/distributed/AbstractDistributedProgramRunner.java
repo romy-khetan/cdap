@@ -240,6 +240,11 @@ public abstract class AbstractDistributedProgramRunner implements ProgramRunner 
           twillPreparer.withApplicationArguments("cdap.jar.cache.dir=" + programTypeDir.getAbsolutePath());
           jarCacheTracker.registerLaunch(programTypeDir, program.getType());
 
+          // Hacks for TWILL-187
+          twillPreparer.withApplicationArguments(
+            "app.max.start.seconds=" + cConf.get(Constants.AppFabric.PROGRAM_MAX_START_SECONDS),
+            "app.max.stop.seconds=" + cConf.get(Constants.AppFabric.PROGRAM_MAX_STOP_SECONDS));
+
           LOG.debug("Launching twill job for program {}.", program.getName());
           TwillController twillController = twillPreparer
             .withDependencies(HBaseTableUtilFactory.getHBaseTableUtilClass())
