@@ -16,11 +16,12 @@
 
 package co.cask.cdap.gateway.handlers;
 
+import co.cask.cdap.api.security.store.SecureStore;
 import co.cask.cdap.api.security.store.SecureStoreData;
+import co.cask.cdap.api.security.store.SecureStoreManager;
 import co.cask.cdap.common.BadRequestException;
 import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.gateway.handlers.util.AbstractAppFabricHttpHandler;
-import co.cask.cdap.internal.app.services.SecureStoreService;
 import co.cask.cdap.proto.id.NamespaceId;
 import co.cask.cdap.proto.id.SecureKeyId;
 import co.cask.cdap.proto.security.SecureKeyCreateRequest;
@@ -46,11 +47,13 @@ import javax.ws.rs.PathParam;
 public class SecureStoreHandler extends AbstractAppFabricHttpHandler {
   private static final Gson GSON = new Gson();
 
-  private final SecureStoreService secureStoreService;
+  private final SecureStore secureStore;
+  private final SecureStoreManager secureStoreManager;
 
   @Inject
-  SecureStoreHandler(SecureStoreService secureStoreService) {
-    this.secureStoreService = secureStoreService;
+  SecureStoreHandler(SecureStore secureStore, SecureStoreManager secureStoreManager) {
+    this.secureStore = secureStore;
+    this.secureStoreManager = secureStoreManager;
   }
 
   @Path("/{key-name}")
@@ -68,7 +71,8 @@ public class SecureStoreHandler extends AbstractAppFabricHttpHandler {
                                       " \n" + GSON.toJson(dummy));
     }
 
-    secureStoreService.put(secureKeyId, secureKeyCreateRequest);
+    secureStoreManager.putSecureData(namespace, name, secureKeyCreateRequest.getData(),
+                                     secureKeyCreateRequest.getDescription(), secureKeyCreateRequest.getProperties());
     httpResponder.sendStatus(HttpResponseStatus.OK);
   }
 
@@ -76,8 +80,7 @@ public class SecureStoreHandler extends AbstractAppFabricHttpHandler {
   @DELETE
   public void delete(HttpRequest httpRequest, HttpResponder httpResponder, @PathParam("namespace-id") String namespace,
                      @PathParam("key-name") String name) throws Exception {
-    SecureKeyId secureKeyId = new SecureKeyId(namespace, name);
-    secureStoreService.delete(secureKeyId);
+    secureStoreManager.deleteSecureData(namespace, name);
     httpResponder.sendStatus(HttpResponseStatus.OK);
   }
 
@@ -86,7 +89,7 @@ public class SecureStoreHandler extends AbstractAppFabricHttpHandler {
   public void get(HttpRequest httpRequest, HttpResponder httpResponder, @PathParam("namespace-id") String namespace,
                   @PathParam("key-name") String name) throws Exception {
     SecureKeyId secureKeyId = new SecureKeyId(namespace, name);
-    String data = new String(secureStoreService.get(secureKeyId).get(), StandardCharsets.UTF_8);
+    String data = new String(secureStore.getSecureData(namespace, name).get(), StandardCharsets.UTF_8);
     httpResponder.sendString(HttpResponseStatus.OK, data);
   }
 
@@ -95,8 +98,7 @@ public class SecureStoreHandler extends AbstractAppFabricHttpHandler {
   public void getMetadata(HttpRequest httpRequest, HttpResponder httpResponder,
                           @PathParam("namespace-id") String namespace,
                           @PathParam("key-name") String name) throws Exception {
-    SecureKeyId secureKeyId = new SecureKeyId(namespace, name);
-    SecureStoreData secureStoreData = secureStoreService.get(secureKeyId);
+    SecureStoreData secureStoreData = secureStore.getSecureData(namespace, name);
     httpResponder.sendJson(HttpResponseStatus.OK, secureStoreData.getMetadata());
   }
 
@@ -104,7 +106,6 @@ public class SecureStoreHandler extends AbstractAppFabricHttpHandler {
   @GET
   public void list(HttpRequest httpRequest, HttpResponder httpResponder, @PathParam("namespace-id") String namespace)
     throws Exception {
-    NamespaceId namespaceId = new NamespaceId(namespace);
-    httpResponder.sendJson(HttpResponseStatus.OK, secureStoreService.list(namespaceId));
+    httpResponder.sendJson(HttpResponseStatus.OK, secureStore.listSecureData(namespace));
   }
 }

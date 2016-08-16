@@ -21,8 +21,8 @@ import co.cask.cdap.api.security.store.SecureStoreManager;
 import co.cask.cdap.common.conf.CConfiguration;
 import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.common.conf.SConfiguration;
-import co.cask.cdap.common.namespace.NamespaceQueryAdmin;
 import co.cask.cdap.common.runtime.RuntimeModule;
+import co.cask.cdap.security.store.DefaultSecureStoreService;
 import co.cask.cdap.security.store.DummySecureStore;
 import co.cask.cdap.security.store.FileSecureStore;
 import com.google.common.base.Strings;
@@ -33,8 +33,7 @@ import com.google.inject.Module;
 import com.google.inject.Provider;
 import com.google.inject.Singleton;
 import com.google.inject.TypeLiteral;
-
-import java.io.IOException;
+import com.google.inject.name.Names;
 
 /**
  * Guice bindings for security store related classes.
@@ -58,6 +57,8 @@ import java.io.IOException;
  *
  */
 public class SecureStoreModules extends RuntimeModule {
+  public static final String DELEGATE_SECURE_STORE = "delegateSecureStore";
+  public static final String DELEGATE_SECURE_STORE_MANAGER = "delegateSecureStoreManager";
   private static final String KMS_BACKED = "kms";
   private static final String FILE_BACKED = "file";
 
@@ -66,8 +67,14 @@ public class SecureStoreModules extends RuntimeModule {
     return new AbstractModule() {
       @Override
       protected void configure() {
-        bind(SecureStore.class).toProvider(new TypeLiteral<StoreProvider<SecureStore>>() { });
-        bind(SecureStoreManager.class).toProvider(new TypeLiteral<StoreProvider<SecureStoreManager>>() { });
+        bind(SecureStore.class).to(DefaultSecureStoreService.class);
+        bind(SecureStoreManager.class).to(DefaultSecureStoreService.class);
+        bind(SecureStore.class)
+          .annotatedWith(Names.named(DELEGATE_SECURE_STORE))
+          .toProvider(new TypeLiteral<StoreProvider<SecureStore>>() { });
+        bind(SecureStoreManager.class)
+          .annotatedWith(Names.named(DELEGATE_SECURE_STORE_MANAGER))
+          .toProvider(new TypeLiteral<StoreProvider<SecureStoreManager>>() { });
       }
     };
   }
@@ -77,8 +84,14 @@ public class SecureStoreModules extends RuntimeModule {
     return new AbstractModule() {
       @Override
       protected void configure() {
-        bind(SecureStore.class).toProvider(new TypeLiteral<StoreProvider<SecureStore>>() { });
-        bind(SecureStoreManager.class).toProvider(new TypeLiteral<StoreProvider<SecureStoreManager>>() { });
+        bind(SecureStore.class).to(DefaultSecureStoreService.class);
+        bind(SecureStoreManager.class).to(DefaultSecureStoreService.class);
+        bind(SecureStore.class)
+          .annotatedWith(Names.named(DELEGATE_SECURE_STORE))
+          .toProvider(new TypeLiteral<StoreProvider<SecureStore>>() { });
+        bind(SecureStoreManager.class)
+          .annotatedWith(Names.named(DELEGATE_SECURE_STORE_MANAGER))
+          .toProvider(new TypeLiteral<StoreProvider<SecureStoreManager>>() { });
       }
     };
   }
@@ -88,8 +101,14 @@ public class SecureStoreModules extends RuntimeModule {
     return new AbstractModule() {
       @Override
       protected void configure() {
-        bind(SecureStore.class).toProvider(new TypeLiteral<DistributedStoreProvider<SecureStore>>() { });
-        bind(SecureStoreManager.class).toProvider(new TypeLiteral<DistributedStoreProvider<SecureStoreManager>>() { });
+        bind(SecureStore.class).to(DefaultSecureStoreService.class);
+        bind(SecureStoreManager.class).to(DefaultSecureStoreService.class);
+        bind(SecureStore.class)
+          .annotatedWith(Names.named(DELEGATE_SECURE_STORE))
+          .toProvider(new TypeLiteral<DistributedStoreProvider<SecureStore>>() { });
+        bind(SecureStoreManager.class)
+          .annotatedWith(Names.named(DELEGATE_SECURE_STORE_MANAGER))
+          .toProvider(new TypeLiteral<DistributedStoreProvider<SecureStoreManager>>() { });
       }
     };
   }
