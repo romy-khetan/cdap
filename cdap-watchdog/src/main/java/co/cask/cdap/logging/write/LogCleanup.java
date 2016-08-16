@@ -18,7 +18,11 @@ package co.cask.cdap.logging.write;
 
 import co.cask.cdap.common.io.Locations;
 import co.cask.cdap.common.io.RootLocationFactory;
+import co.cask.cdap.common.namespace.NamespaceQueryAdmin;
+import co.cask.cdap.common.namespace.NamespacedLocationFactory;
 import co.cask.cdap.data2.security.Impersonator;
+import co.cask.cdap.logging.context.LoggingContextHelper;
+import co.cask.cdap.proto.NamespaceMeta;
 import co.cask.cdap.proto.id.NamespaceId;
 import com.google.common.base.Throwables;
 import com.google.common.collect.HashMultimap;
@@ -30,6 +34,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.net.URI;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -42,18 +47,27 @@ public final class LogCleanup implements Runnable {
 
   private final FileMetaDataManager fileMetaDataManager;
   private final RootLocationFactory rootLocationFactory;
+  private final String logBaseDir;
+  private final NamespaceQueryAdmin namespaceQueryAdmin;
+  private final NamespacedLocationFactory namespacedLocationFactory;
   private final long retentionDurationMs;
   private final Impersonator impersonator;
 
   // this class takes a root location factory because for custom mapped namespaces the namespace is mapped to a
   // location from the root of system and the logs are generated in the custom mapped location. To clean up  these
   // locations we need to work with root based location factory
-  public LogCleanup(FileMetaDataManager fileMetaDataManager, RootLocationFactory rootLocationFactory,
+  public LogCleanup(NamespaceQueryAdmin namespaceQueryAdmin, String logBaseDir,
+                    NamespacedLocationFactory namespacedLocationFactory, FileMetaDataManager fileMetaDataManager,
+                    RootLocationFactory
+    rootLocationFactory,
                     long retentionDurationMs, Impersonator impersonator) {
     this.fileMetaDataManager = fileMetaDataManager;
     this.rootLocationFactory = rootLocationFactory;
     this.retentionDurationMs = retentionDurationMs;
     this.impersonator = impersonator;
+    this.logBaseDir = logBaseDir;
+    this.namespacedLocationFactory = namespacedLocationFactory;
+    this.namespaceQueryAdmin = namespaceQueryAdmin;
 
     LOG.debug("Log retention duration = {} ms", retentionDurationMs);
   }
@@ -89,6 +103,10 @@ public final class LogCleanup implements Runnable {
                                             }
                                           }
                                         });
+
+      // list all the namespaces, iterate over them and then get dir
+      cleanLogDir();
+
       // Delete any empty parent dirs
       for (final String namespacedLogBaseDir : parentDirs.keySet()) {
         // this ensures that we only do doAs which will make an RPC call only once for a namespace
@@ -106,6 +124,17 @@ public final class LogCleanup implements Runnable {
       }
     } catch (Throwable e) {
       LOG.error("Got exception when cleaning up. Will try again later.", e);
+    }
+  }
+
+  private void cleanLogDir() throws Exception {
+    LOG.info("Calling cleanLogDir()");
+    List<NamespaceMeta> namespaceMetaList = namespaceQueryAdmin.list();
+    for (NamespaceMeta namespaceMeta : namespaceMetaList) {
+      String namespacedBaseDir = LoggingContextHelper.getNamespacedBaseDir(namespacedLocationFactory, logBaseDir,
+                                                                           namespaceMeta.getNamespaceId());
+      LOG.info("NamespacedBaseDir: {}", namespacedBaseDir);
+
     }
   }
 

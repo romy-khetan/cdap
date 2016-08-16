@@ -20,6 +20,7 @@ import co.cask.cdap.common.conf.CConfiguration;
 import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.common.io.RootLocationFactory;
 import co.cask.cdap.common.logging.LoggingContext;
+import co.cask.cdap.common.namespace.NamespaceQueryAdmin;
 import co.cask.cdap.common.namespace.NamespacedLocationFactory;
 import co.cask.cdap.data2.security.Impersonator;
 import co.cask.cdap.logging.LoggingConfiguration;
@@ -65,6 +66,7 @@ public class KafkaLogWriterPlugin extends AbstractKafkaLogProcessor {
 
   private final String logBaseDir;
   private final LogFileWriter<KafkaLogEvent> logFileWriter;
+  private final NamespaceQueryAdmin namespaceQueryAdmin;
   // Table structure - <event time bucket, log context, event arrival time bucket, log event>
   private final RowSortedTable<Long, String, Map.Entry<Long, List<KafkaLogEvent>>> messageTable;
   private final long eventBucketIntervalMs;
@@ -81,11 +83,13 @@ public class KafkaLogWriterPlugin extends AbstractKafkaLogProcessor {
   @Inject
   KafkaLogWriterPlugin(CConfiguration cConf, FileMetaDataManager fileMetaDataManager,
                        CheckpointManagerFactory checkpointManagerFactory, RootLocationFactory rootLocationFactory,
-                       NamespacedLocationFactory namespacedLocationFactory, Impersonator impersonator)
+                       NamespacedLocationFactory namespacedLocationFactory, Impersonator impersonator,
+                       NamespaceQueryAdmin namespaceQueryAdmin)
     throws Exception {
 
     this.serializer = new LoggingEventSerializer();
     this.messageTable = TreeBasedTable.create();
+    this.namespaceQueryAdmin = namespaceQueryAdmin;
 
     this.logBaseDir = cConf.get(LoggingConfiguration.LOG_BASE_DIR);
     Preconditions.checkNotNull(this.logBaseDir, "Log base dir cannot be null");
@@ -147,7 +151,8 @@ public class KafkaLogWriterPlugin extends AbstractKafkaLogProcessor {
 
     this.logFileWriter = new CheckpointingLogFileWriter(avroFileWriter, checkpointManager, checkpointIntervalMs);
     long retentionDurationMs = TimeUnit.MILLISECONDS.convert(retentionDurationDays, TimeUnit.DAYS);
-    this.logCleanup = new LogCleanup(fileMetaDataManager, rootLocationFactory, retentionDurationMs, impersonator);
+    this.logCleanup = new LogCleanup(namespaceQueryAdmin, logBaseDir, namespacedLocationFactory, fileMetaDataManager,
+                                     rootLocationFactory, retentionDurationMs, impersonator);
   }
 
   @Override
