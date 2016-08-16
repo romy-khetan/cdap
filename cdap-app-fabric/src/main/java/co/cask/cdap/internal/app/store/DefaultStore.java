@@ -348,6 +348,17 @@ public class DefaultStore implements Store {
   }
 
   @Override
+  public void deleteWorkflowStats(final Id.Application id) {
+    workflowsTx.get().executeUnchecked(new TransactionExecutor.Function<WorkflowDataset, Void>() {
+      @Override
+      public Void apply(WorkflowDataset dataset) {
+        dataset.delete(id);
+        return null;
+      }
+    }, workflows.get());
+  }
+
+  @Override
   public void setSuspend(final Id.Program id, final String pid) {
     appsTx.get().executeUnchecked(new TransactionExecutor.Function<AppMetadataStore, Void>() {
       @Override

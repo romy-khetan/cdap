@@ -46,6 +46,8 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
 
+import static org.apache.hadoop.yarn.webapp.hamlet.HamletSpec.Scope.row;
+
 /**
  * Dataset for Completed Workflows and their associated programs
  */
@@ -80,6 +82,23 @@ public class WorkflowDataset extends AbstractDataset {
     table.put(rowKey, RUNID, Bytes.toBytes(runRecordMeta.getPid()));
     table.put(rowKey, TIME_TAKEN, Bytes.toBytes(timeTaken));
     table.put(rowKey, NODES, Bytes.toBytes(value));
+  }
+
+  public void delete(Id.Application id) {
+    Scanner scanner = table.scan(null, null);
+    Row row;
+    try {
+      while ((row = scanner.next()) != null) {
+        MDSKey.Splitter splittedKey  = new MDSKey(row.getRow()).split();
+        splittedKey.skipString();
+        String appId = splittedKey.getString();
+        if (appId.equals(id.getId().toString())) {
+          table.delete(row.getRow());
+        }
+      }
+    } finally {
+      scanner.close();
+    }
   }
 
   /**

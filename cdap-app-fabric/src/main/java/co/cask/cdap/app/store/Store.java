@@ -264,6 +264,12 @@ public interface Store extends RuntimeStore {
   void addSchedule(Id.Program program, ScheduleSpecification scheduleSpecification);
 
   /**
+   * Deletes data for an application from the WorkflowDataset table
+   * @param id id of application to be deleted
+   */
+  void deleteWorkflowStats(final Id.Application id);
+
+  /**
    * Deletes a schedules from a particular program
    * @param program defines program from which a schedule is being deleted
    * @param scheduleName the name of the schedule to be removed from the program

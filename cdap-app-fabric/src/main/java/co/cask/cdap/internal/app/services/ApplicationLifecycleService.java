@@ -553,7 +553,7 @@ public class ApplicationLifecycleService extends AbstractIdleService {
    * @throws Exception
    */
   private void deleteApp(final Id.Application appId, ApplicationSpecification spec) throws Exception {
-    // enfore ADMIN privileges on the app
+    // enforce ADMIN privileges on the app
     authorizationEnforcer.enforce(appId.toEntityId(), authenticationContext.getPrincipal(), Action.ADMIN);
     // first remove all privileges on the app
     revokePrivileges(appId.toEntityId(), spec);
@@ -604,6 +604,7 @@ public class ApplicationLifecycleService extends AbstractIdleService {
     deleteAppMetadata(appId, appSpec);
 
     store.removeApplication(appId);
+    store.deleteWorkflowStats(appId);
 
     try {
       usageRegistry.unregister(appId);
