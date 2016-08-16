@@ -51,6 +51,7 @@ import co.cask.cdap.metadata.MetadataServiceModule;
 import co.cask.cdap.metrics.guice.MetricsClientRuntimeModule;
 import co.cask.cdap.notifications.feeds.client.NotificationFeedClientModule;
 import co.cask.cdap.proto.id.NamespaceId;
+import co.cask.cdap.security.TokenSecureStoreUpdater;
 import co.cask.cdap.security.auth.context.AuthenticationContextModules;
 import co.cask.cdap.security.authorization.AuthorizationEnforcementModule;
 import co.cask.cdap.security.authorization.AuthorizationEnforcementService;
@@ -65,9 +66,12 @@ import com.google.inject.Guice;
 import com.google.inject.Injector;
 import com.google.inject.Scopes;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.twill.api.SecureStore;
 import org.apache.twill.api.TwillContext;
 import org.apache.twill.kafka.client.KafkaClientService;
 import org.apache.twill.zookeeper.ZKClientService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
@@ -76,6 +80,7 @@ import java.util.List;
  */
 public class DatasetOpExecutorServerTwillRunnable extends AbstractMasterTwillRunnable {
 
+  private static final Logger LOG = LoggerFactory.getLogger(DatasetOpExecutorServerTwillRunnable.class);
   private Injector injector;
 
   public DatasetOpExecutorServerTwillRunnable(String name, String cConfName, String hConfName) {
@@ -96,6 +101,9 @@ public class DatasetOpExecutorServerTwillRunnable extends AbstractMasterTwillRun
     LoggingContextAccessor.setLoggingContext(new ServiceLoggingContext(NamespaceId.SYSTEM.getNamespace(),
                                                                        Constants.Logging.COMPONENT_NAME,
                                                                        Constants.Service.DATASET_EXECUTOR));
+    TokenSecureStoreUpdater updater = injector.getInstance(TokenSecureStoreUpdater.class);
+    SecureStore update = updater.update(null, null);
+    LOG.info("Updated : {}", update);
   }
 
   @VisibleForTesting
